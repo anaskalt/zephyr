@@ -94,6 +94,9 @@ struct i2c_stm32_data {
 #endif /* CONFIG_I2C_STM32_INTERRUPT */
 	struct k_sem bus_mutex;
 	uint32_t dev_config;
+#if defined(CONFIG_SOC_SERIES_STM32WLX)
+	uint32_t i2c_clock;
+#endif
 #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_i2c_v2)
 	/* Store the current timing structure set by runtime config */
 	struct i2c_config_timing current_timing;

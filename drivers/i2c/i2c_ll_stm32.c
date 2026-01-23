@@ -122,6 +122,10 @@ int i2c_stm32_runtime_configure(const struct device *dev, uint32_t config)
 #endif
 	ret = i2c_stm32_configure_timing(dev, i2c_clock);
 
+#if defined(CONFIG_SOC_SERIES_STM32WLX)
+	data->i2c_clock = i2c_clock;
+#endif
+
 	if (data->smbalert_active) {
 		LL_I2C_Enable(i2c);
 	}

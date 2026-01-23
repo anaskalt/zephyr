@@ -92,6 +92,19 @@ int i2c_stm32_suspend(const struct device *dev)
 	return 0;
 }
 
+#if defined(CONFIG_SOC_SERIES_STM32WLX)
+static int i2c_stm32_reinit_timing(const struct device *dev)
+{
+	struct i2c_stm32_data *data = dev->data;
+	/* Initialize the clock to the previous state. */
+	int ret = i2c_stm32_configure_timing(dev, data->i2c_clock);
+	if (ret < 0) {
+		LOG_ERR("I2C timing configuration failed (%d)", ret);
+	}
+	return ret;
+}
+#endif
+
 int i2c_stm32_pm_action(const struct device *dev, enum pm_device_action action)
 {
 	int err;
@@ -99,6 +112,9 @@ int i2c_stm32_pm_action(const struct device *dev, enum pm_device_action action)
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
 		err = i2c_stm32_activate(dev);
+#if defined(CONFIG_SOC_SERIES_STM32WLX)
+		i2c_stm32_reinit_timing(dev);
+#endif
 		break;
 	case PM_DEVICE_ACTION_SUSPEND:
 		err = i2c_stm32_suspend(dev);
