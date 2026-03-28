@@ -1,0 +1,84 @@
+# SIMCom SIM7022 driver options
+#
+# Copyright (c) 2025 Metratec GmbH
+# SPDX-License-Identifier: Apache-2.0
+
+config MODEM_SIM7022
+	bool "SIM7022 NB-IoT Driver"
+	select MODEM_CONTEXT
+	select MODEM_CMD_HANDLER
+	select MODEM_IFACE_UART
+	select MODEM_SOCKET
+	select NET_OFFLOAD
+	select NET_SOCKETS_OFFLOAD
+	imply GPIO
+	help
+	  Enables the driver for the SIMCom SIM7022 NB-IoT modem.
+
+if MODEM_SIM7022
+
+config MODEM_SIMCOM_SIM7022_RX_STACK_SIZE
+	int "Stack size for the SIM7022 modem driver RX thread"
+	default 1028
+	help
+	  This stack is used by the SIM7022 RX thread.
+
+config MODEM_SIMCOM_SIM7022_RX_WORKQ_STACK_SIZE
+	int "Stack size for the SIM7022 modem driver work queue"
+	default 2048
+	help
+	  This stack is used by the SIM7022 work queue.
+
+config MODEM_SIMCOM_SIM7022_INIT_PRIORITY
+	int "SIM7022 driver init priority"
+	default 80
+	help
+	  SIM7022 driver initialization priority.
+
+config MODEM_SIMCOM_SIM7022_APN
+	string "APN for establishing a network connection"
+	default "internet"
+	help
+	  APN name for the network connection context. This value is
+	  specific to the network provider and may need to be changed.
+
+config MODEM_SIMCOM_SIM7022_APN_MAX_LEN
+	int
+	default 63
+	help
+	  Maximum APN string length per 3GPP TS 23.003 §9.1.
+
+config MODEM_SIMCOM_SIM7022_BAUDRATE
+	int "Baudrate for modem UART"
+	default 115200
+	help
+	  Set this to the baudrate the UART is using. On first startup
+	  the modem uses autobaud. The driver will configure a fixed
+	  baudrate for faster subsequent startups.
+
+config MODEM_SIMCOM_SIM7022_LTE_BANDS
+	hex "LTE NB-IoT band bitmask (AT+CNBP value)"
+	default 0x0002000000400180
+	help
+	  64-bit hex bitmask passed verbatim to AT+CNBP to select NB-IoT bands.
+	  Bit N (0-based) enables LTE band (N+1).
+
+	  The default value 0x0002000000400180 is the example given in the
+	  SIM7022 AT command manual.  Adjust for your region and network
+	  operator.  Use AT+CNBP=? to query supported bands on your hardware.
+
+config MODEM_SIMCOM_SIM7022_DNS_DEFAULT_RECOUNT
+	int "Retry count for a DNS query"
+	range 0 10
+	default 10
+	help
+	  The number of retries for a DNS lookup.
+
+config MODEM_SIMCOM_SIM7022_DNS_DEFAULT_TIMEOUT
+	int "Timeout for a DNS query in milliseconds"
+	range 0 60000
+	default 20000
+	help
+	  Timeout for DNS queries in milliseconds.
+
+endif # MODEM_SIM7022

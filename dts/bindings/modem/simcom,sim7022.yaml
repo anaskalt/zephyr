@@ -1,0 +1,33 @@
+# Copyright (c) 2025 Metratec GmbH
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  SIMCom SIM7022 NB-IoT modem.
+
+  The SIM7022 is an NB-IoT-only LPWA module connected over UART.
+  It uses AT+NETOPEN/NETCLOSE for PDP context management and
+  AT+CIPOPEN/CIPSEND/CIPCLOSE/CIPRXGET for socket operations.
+
+  Example DTS node:
+
+    &uart1 {
+      status = "okay";
+
+      sim7022: modem {
+        compatible = "simcom,sim7022";
+        mdm-power-gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;
+      };
+    };
+
+compatible: "simcom,sim7022"
+
+include: zephyr,cellular-modem-device.yaml
+
+properties:
+  mdm-power-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO connected to the PWRKEY pin of the SIM7022.
+      The driver holds it HIGH for 1.5 seconds to toggle
+      power on or off (active-high logic).
