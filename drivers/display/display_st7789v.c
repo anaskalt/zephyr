@@ -23,6 +23,63 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(display_st7789v);
 
+#include <cmsis_core.h>
+
+/*
+ * Scheduler-safe millisecond delay.
+ *
+ * The ST7789V driver requires brief delays between commands during
+ * initialization and after exiting sleep mode. These code paths run from
+ * two contexts: device init (POST_KERNEL) and st7789v_pm_action() invoked
+ * from the idle thread when CONFIG_PM_DEVICE_SYSTEM_MANAGED=y.
+ *
+ * In the idle thread context, the scheduler is locked and interrupts are
+ * masked. k_sleep() is invalid here (it would attempt a context switch).
+ * k_busy_wait() is also unsafe on STM32WBA: it relies on k_cycle_get_32(),
+ * which depends on the LPTIM tick driver, which in turn depends on
+ * interrupts to track counter overflows.
+ *
+ * This helper picks the appropriate delay mechanism per context:
+ *   - When the caller can yield: k_sleep() — efficient, lets the CPU idle.
+ *   - Otherwise: spin on the ARM Cortex-M DWT cycle counter (CYCCNT), a
+ *     hardware register clocked by HCLK that is independent of the kernel
+ *     timer and interrupt state. Available on all ARMv7-M / ARMv8-M cores.
+ */
+static void st7789v_safe_msleep(uint32_t ms)
+{
+	if (k_can_yield()) {
+		k_sleep(K_MSEC(ms));
+		return;
+	}
+
+	/* Scheduler-locked context (e.g. PM resume from idle thread).
+	 * Use ARM DWT cycle counter — hardware register, independent of
+	 * LPTIM and interrupts.
+	 */
+
+	/* Enable DWT if not already enabled (typically already on if a
+	 * debugger is attached, but be defensive for production).
+	 */
+	if (!(CoreDebug->DEMCR & CoreDebug_DEMCR_TRCENA_Msk)) {
+		CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	}
+	if (!(DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk)) {
+		DWT->CYCCNT = 0;
+		DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+	}
+
+	uint32_t cycles_per_ms = SystemCoreClock / 1000U;
+	uint32_t cycles_to_wait = cycles_per_ms * ms;
+	uint32_t start = DWT->CYCCNT;
+
+	while ((DWT->CYCCNT - start) < cycles_to_wait) {
+		/* Spin — natural 32-bit unsigned wraparound handling.
+		 * At 32 MHz, CYCCNT wraps every ~134 seconds, far longer
+		 * than any single delay we'd request here (max 120 ms).
+		 */
+	}
+}
+
 struct st7789v_config {
 	const struct device *mipi_dbi;
 	const struct mipi_dbi_config dbi_config;
@@ -86,7 +143,7 @@ static int st7789v_exit_sleep(const struct device *dev)
 		return ret;
 	}
 
-	k_sleep(K_MSEC(120));
+	st7789v_safe_msleep(120);
 	return ret;
 }
 
@@ -97,7 +154,7 @@ static int st7789v_reset_display(const struct device *dev)
 
 	LOG_DBG("Resetting display");
 
-	k_sleep(K_MSEC(1));
+	st7789v_safe_msleep(1);
 	ret = mipi_dbi_reset(config->mipi_dbi, 6);
 	if (ret == -ENOTSUP) {
 		/* Send software reset command */
@@ -105,9 +162,9 @@ static int st7789v_reset_display(const struct device *dev)
 		if (ret < 0) {
 			return ret;
 		}
-		k_sleep(K_MSEC(5));
+		st7789v_safe_msleep(5);
 	} else {
-		k_sleep(K_MSEC(20));
+		st7789v_safe_msleep(20);
 	}
 
 	return ret;
