@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Anastasios Kaltakis
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  MEMSIC MMC5983MA 3-axis AMR magnetometer with 18-bit output, integrated
+  SET/RESET degaussing and a die temperature sensor. I2C address 0x30.
+
+  Example:
+
+    &i2c1 {
+        mmc5983ma@30 {
+            compatible = "memsic,mmc5983ma";
+            reg = <0x30>;
+            int-gpios = <&gpiob 2 GPIO_ACTIVE_HIGH>;
+            bandwidth = <3>;
+            auto-set-reset;
+        };
+    };
+
+compatible: "memsic,mmc5983ma"
+
+include: [sensor-device.yaml, i2c-device.yaml]
+
+properties:
+  int-gpios:
+    type: phandle-array
+    description: |
+      Data-ready interrupt line (INT pin). Push-pull, active high, held
+      high impedance until the interrupt is enabled. Configure as
+      GPIO_ACTIVE_HIGH.
+
+  bandwidth:
+    type: int
+    default: 0
+    enum: [0, 1, 2, 3]
+    description: |
+      Decimation filter length, BW[1:0] of internal control register 1.
+      Sets the measurement time and the supply current of one measurement:
+        0: 8 ms, 100 Hz, 0.4 mG RMS noise (default, best noise)
+        1: 4 ms, 200 Hz, 0.6 mG
+        2: 2 ms, 400 Hz, 0.8 mG
+        3: 0.5 ms, 800 Hz, 1.2 mG (lowest energy per sample)
+
+  auto-set-reset:
+    type: boolean
+    description: |
+      Enable the automatic SET/RESET function (Auto_SR_en). The chip then
+      degausses the sensing elements around each measurement, removing the
+      bridge offset drift over temperature at the cost of measurement time.
