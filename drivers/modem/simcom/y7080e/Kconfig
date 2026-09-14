@@ -1,0 +1,133 @@
+# SIMCom Y7080E NB-IoT driver options
+
+# Copyright (c) 2026 Anastasios Kaltakis
+# SPDX-License-Identifier: Apache-2.0
+
+config MODEM_Y7080E
+	bool "SIMCom Y7080E NB-IoT driver"
+	depends on DT_HAS_SIMCOM_Y7080E_ENABLED
+	depends on !MODEM_CELLULAR
+	select MODEM_MODULES
+	select MODEM_PIPE
+	select MODEM_CHAT
+	select MODEM_BACKEND_UART
+	select UART_INTERRUPT_DRIVEN if SERIAL_SUPPORT_INTERRUPT
+	select RING_BUFFER
+	select MODEM_SOCKET
+	select NET_OFFLOAD
+	select NET_SOCKETS_OFFLOAD
+	imply GPIO
+	help
+	  Driver for the SIMCom Y7080E NB-IoT (Cat-NB1/NB2) module on top of
+	  the modem chat/pipe/UART-backend stack, with UDP/TCP socket offload
+	  (AT+NSOCR / AT+NSOSTF / AT+NSORF), DNS offload (AT+QDNS) and the
+	  PSM sleep/wake sequence of the module (AT+WORKLOCK, RESET pin wake).
+
+if MODEM_Y7080E
+
+config MODEM_SIMCOM_Y7080E_INIT_PRIORITY
+	int "Driver init priority"
+	default 80
+
+config MODEM_SIMCOM_Y7080E_AUTOSTART
+	bool "Power the module on and configure it during driver init"
+	help
+	  When disabled the driver only prepares the GPIOs and the UART pipe
+	  at init and the application powers the module on with
+	  mdm_y7080e_power_on(). Keeping this off keeps the boot fast and the
+	  module unpowered until the application decides otherwise.
+
+config MODEM_SIMCOM_Y7080E_APN
+	string "APN written to the default PDP context (empty = leave the module setting)"
+	default ""
+	help
+	  When set, the driver compares it with the APN of context 0 on every
+	  boot and rewrites it (AT+CFUN=0, AT+CGDCONT=0, AT+NV=SAVE) only when
+	  it differs.
+
+config MODEM_SIMCOM_Y7080E_BAND_LIST
+	string "NB-IoT band list for AT+NBAND (empty = leave the module setting)"
+	default "20,8"
+	help
+	  Comma separated decimal band list. Compared with AT+NBAND? on every
+	  boot and written (with the radio off) only when it differs.
+
+config MODEM_SIMCOM_Y7080E_PSM
+	bool "Request Power Saving Mode"
+	default y
+	help
+	  Send AT+CPSMS=1 with the timers below. The module only reaches its
+	  1.7 uA PSM current when the network grants the request; the granted
+	  timers are decoded from the +CEREG URC (mdm_y7080e_get_psm_timers()).
+
+config MODEM_SIMCOM_Y7080E_PSM_TAU
+	string "Requested periodic TAU (T3412) as a GPRS timer 3 octet"
+	default "00100001"
+	depends on MODEM_SIMCOM_Y7080E_PSM
+	help
+	  Eight binary digits, bits 8-6 unit (000 10 min, 001 1 h, 010 10 h,
+	  011 2 s, 100 30 s, 101 1 min, 110 320 h, 111 deactivated), bits 5-1
+	  value. The default requests one hour.
+
+config MODEM_SIMCOM_Y7080E_PSM_ACTIVE_TIME
+	string "Requested active time (T3324) as a GPRS timer 2 octet"
+	default "00000001"
+	depends on MODEM_SIMCOM_Y7080E_PSM
+	help
+	  Eight binary digits, bits 8-6 unit (000 2 s, 001 1 min, 010 6 min,
+	  111 deactivated), bits 5-1 value. The default requests 2 seconds:
+	  the module drops into PSM right after the RRC connection is released.
+
+config MODEM_SIMCOM_Y7080E_UDP_SEND_FLAG
+	hex "AT+NSOSTF flag for UDP datagrams"
+	default 0x200
+	range 0x100 0x400
+	help
+	  0x100 plain send, 0x200 release assistance (the network releases the
+	  RRC connection right after this datagram), 0x400 release after the
+	  reply to this datagram. 0x200 is the right value for fire-and-forget
+	  telemetry: it saves the 20 s inactivity tail per uplink.
+
+config MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH
+	int "Largest payload of one send or receive, in bytes"
+	default 512
+	range 16 1400
+	help
+	  Payloads travel hex encoded inside one AT line, so this also sizes
+	  the chat receive buffer and the command buffer (2 x length + header).
+
+config MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE
+	int "modem_chat receive buffer size"
+	default 1200
+	help
+	  Must exceed the longest response line. An AT+NSORF reply carries
+	  2 x MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH hex characters plus about
+	  60 bytes of header.
+
+config MODEM_SIMCOM_Y7080E_UART_BUF_SIZE
+	int "UART backend receive and transmit buffer size (even)"
+	default 1024
+
+config MODEM_SIMCOM_Y7080E_ATTACH_TIMEOUT_S
+	int "Seconds to wait for network registration and PDN activation"
+	default 180
+
+config MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS
+	int "Milliseconds to wait for +POWERDOWN after releasing the work lock"
+	default 15000
+
+config MODEM_SIMCOM_Y7080E_DNS_TIMEOUT_MS
+	int "Timeout for an AT+QDNS lookup, in milliseconds"
+	default 20000
+
+config MODEM_SIMCOM_Y7080E_RESETCTL_MODE
+	int "AT+RESETCTL mode the driver expects on the RESET pin"
+	default 1
+	range 0 1
+	help
+	  1 (factory default): a RESET high pulse shorter than 5 s wakes the
+	  module, longer than 6 s resets it. 0: shorter than 15 ms wakes,
+	  longer than 20 ms resets. The driver writes the mode into the module
+	  when the read-back differs.
+
+endif # MODEM_Y7080E

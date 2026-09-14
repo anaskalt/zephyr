@@ -57,6 +57,14 @@ tests:
     extra_args: EXTRA_CONF_FILE=modem_simcom_sim7080.conf
     extra_configs:
       - CONFIG_UART_ASYNC_API=y
+  drivers.modem.modem_simcom_y7080e.interrupt_driven.build:
+    extra_args: EXTRA_CONF_FILE=modem_simcom_y7080e.conf
+    extra_configs:
+      - CONFIG_UART_INTERRUPT_DRIVEN=y
+  drivers.modem.modem_simcom_y7080e.async.build:
+    extra_args: EXTRA_CONF_FILE=modem_simcom_y7080e.conf
+    extra_configs:
+      - CONFIG_UART_ASYNC_API=y
   drivers.modem.modem_st87mxx.interrupt_driven.build:
     extra_args: EXTRA_CONF_FILE=modem_st87mxx.conf
     extra_configs:

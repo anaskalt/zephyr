@@ -1,0 +1,46 @@
+# Copyright (c) 2026 Anastasios Kaltakis
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  SIMCom Y7080E NB-IoT (Cat-NB1/NB2) module on a UART.
+
+  The module has no PWRKEY: it boots as soon as VBAT is applied, so
+  mdm-power-gpios must drive a load switch on its supply. RESET is active
+  high with an internal pull-down; a short high pulse wakes the module from
+  PSM, a long one resets it (AT+RESETCTL selects the durations).
+
+  Example:
+
+    &usart2 {
+      status = "okay";
+      current-speed = <115200>;
+
+      modem: y7080e {
+        compatible = "simcom,y7080e";
+        mdm-power-gpios = <&gpiob 5 GPIO_ACTIVE_LOW>;
+        mdm-reset-gpios = <&gpiob 8 GPIO_ACTIVE_HIGH>;
+        mdm-status-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+        mdm-ring-gpios = <&gpiob 9 GPIO_ACTIVE_LOW>;
+      };
+    };
+
+compatible: "simcom,y7080e"
+
+include: zephyr,cellular-modem-device.yaml
+
+properties:
+  mdm-power-gpios:
+    required: true
+    description: |
+      Supply switch of the module. Logical 1 powers the module.
+
+  mdm-reset-gpios:
+    required: true
+    description: |
+      RESET pin, logical 1 = asserted. Doubles as the PSM wake input.
+
+  mdm-status-gpios:
+    type: phandle-array
+    description: |
+      STATUS pin, high once the module firmware is ready. Optional; without
+      it the driver waits a fixed time after power-up.

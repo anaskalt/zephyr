@@ -40,6 +40,15 @@ test_simcom_sim7080: sim7080 {
 	mdm-power-gpios = <&test_gpio 0 0>;
 };
 
+test_simcom_y7080e: y7080e {
+	compatible = "simcom,y7080e";
+
+	mdm-power-gpios = <&test_gpio 0 0>;
+	mdm-reset-gpios = <&test_gpio 1 0>;
+	mdm-status-gpios = <&test_gpio 2 0>;
+	mdm-ring-gpios = <&test_gpio 3 0>;
+};
+
 test_quectel_bg9x: quectel_bg9x {
 	compatible = "quectel,bg9x";
 
