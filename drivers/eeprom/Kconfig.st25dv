@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Anastasios Kaltakis
+# SPDX-License-Identifier: Apache-2.0
+
+config EEPROM_ST25DV
+	bool "ST25DV dynamic NFC tag EEPROM driver"
+	default y
+	depends on DT_HAS_ST_ST25DV_ENABLED
+	select I2C
+	select GPIO if $(dt_compat_any_has_prop,$(DT_COMPAT_ST_ST25DV),gpo-gpios)
+	select GPIO if $(dt_compat_any_has_prop,$(DT_COMPAT_ST_ST25DV),vcc-gpios)
+	help
+	  Enable the driver for the STMicroelectronics ST25DV04K/16K/64K and
+	  ST25DV04KC/16KC/64KC dynamic NFC tags. The user memory is exposed
+	  through the EEPROM API; GPO events, the security session, system and
+	  dynamic registers and the mailbox through the ST25DV vendor API.
+
+if EEPROM_ST25DV
+
+config EEPROM_ST25DV_INIT_PRIORITY
+	int "ST25DV init priority"
+	default EEPROM_INIT_PRIORITY
+	help
+	  Device driver initialization priority. Must be later than the I2C
+	  bus and GPIO controllers it uses.
+
+config EEPROM_ST25DV_I2C_PASSWORD
+	string "I2C security session password (16 hex digits)"
+	default "0000000000000000"
+	help
+	  64-bit I2C password presented when the driver needs the I2C security
+	  session (system register writes such as the GPO configuration). The
+	  factory value is all zeros.
+
+config EEPROM_ST25DV_EVENT_SETTLE_MS
+	int "Delay between a GPO pulse and the IT_STS_Dyn read (ms)"
+	default 20
+	range 1 1000
+	help
+	  A reader session produces bursts of GPO pulses. The interrupt status
+	  register accumulates every event until it is read, so the driver
+	  waits this long after the last pulse before reading it and calling
+	  the event callback once with all pending events.
+
+config EEPROM_ST25DV_FIELD_TIMEOUT_S
+	int "Maximum time the tag is kept powered after an RF field appeared (s)"
+	default 15
+	range 1 600
+	help
+	  The tag only reports the disappearance of the RF field while VCC is
+	  present, so the driver keeps VCC on from FIELD_RISING until
+	  FIELD_FALLING. If no FIELD_FALLING arrives within this time the
+	  driver polls the field state and releases the power itself.
+
+endif # EEPROM_ST25DV

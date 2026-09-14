@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Anastasios Kaltakis
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  STMicroelectronics ST25DV dynamic NFC/RFID tag with an I2C EEPROM
+  (ST25DV04K/16K/64K and ST25DV04KC/16KC/64KC).
+
+  The user memory is exposed through the EEPROM API. The system
+  configuration registers, dynamic registers, GPO interrupt sources,
+  I2C security session and fast-transfer-mode mailbox are exposed through
+  the vendor API in <zephyr/drivers/eeprom/st25dv.h>.
+
+  The "reg" address is the device select for user memory / dynamic
+  registers (0x53 with the factory device code). The system configuration
+  area is reached at reg | 0x04 (0x57).
+
+  When vcc-gpios is present the driver powers the tag only around I2C
+  accesses (PM device runtime); the RF side keeps working from the reader
+  field while VCC is off.
+
+  Example:
+
+    &i2c2 {
+        st25dv: st25dv@53 {
+            compatible = "st,st25dv";
+            reg = <0x53>;
+            size = <512>;
+            vcc-gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+            gpo-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
+        };
+    };
+
+compatible: "st,st25dv"
+
+include: [eeprom-base.yaml, i2c-device.yaml]
+
+properties:
+  size:
+    required: true
+    description: |
+      User memory size in bytes: 512 (04K/04KC), 2048 (16K/16KC) or
+      8192 (64K/64KC).
+
+  vcc-gpios:
+    type: phandle-array
+    description: |
+      GPIO driving the tag VCC pin. Logical 1 powers the tag. When present
+      the driver keeps the tag unpowered between accesses.
+
+  gpo-gpios:
+    type: phandle-array
+    description: |
+      GPO interrupt output. On the 8-pin packages GPO is open drain and
+      needs an external pull-up; declare it GPIO_ACTIVE_LOW. On the CMOS
+      packages declare it GPIO_ACTIVE_HIGH.

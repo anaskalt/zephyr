@@ -55,6 +55,14 @@
 				/* read-only; */
 			};
 
+			test_i2c_st25dv: st25dv@3 {
+				compatible = "st,st25dv";
+				reg = <0x3>;
+				size = <512>;
+				vcc-gpios = <&test_gpio 0 0>;
+				gpo-gpios = <&test_gpio 1 0>;
+			};
+
 			test_i2c_tmp11x: tmp11x@2 {
 				status = "okay";
 				compatible = "ti,tmp11x";
