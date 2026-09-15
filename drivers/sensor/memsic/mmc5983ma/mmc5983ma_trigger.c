@@ -6,9 +6,11 @@
  * MMC5983MA data-ready trigger on the INT pin.
  *
  * INT is an active-high level output: it rises when a measurement
- * (magnetic or temperature) completes and stays high until the done bit is
- * cleared in the status register. The driver clears it after the handler
- * ran, and sample_fetch() clears it as well.
+ * completes and stays high until the done bit is cleared in the status
+ * register. Only sample_fetch() clears it, so a handler may either fetch
+ * directly or signal a thread that fetches; the next edge comes with the
+ * first chip-timed sample after that fetch. Triggers therefore need the
+ * continuous mode (a sampling frequency) to be set first.
  */
 
 #define DT_DRV_COMPAT memsic_mmc5983ma
@@ -28,10 +30,6 @@ static void mmc5983ma_handle_int(const struct device *dev)
 	if (data->handler != NULL) {
 		data->handler(dev, data->trigger);
 	}
-
-	/* If the handler did not fetch, release the INT line anyway. */
-	(void)mmc5983ma_reg_write(dev, MMC5983MA_REG_STATUS,
-				  MMC5983MA_STATUS_MEAS_M_DONE | MMC5983MA_STATUS_MEAS_T_DONE);
 }
 
 static void mmc5983ma_gpio_callback(const struct device *port, struct gpio_callback *cb,
@@ -89,6 +87,12 @@ int mmc5983ma_trigger_set(const struct device *dev, const struct sensor_trigger 
 	}
 
 	k_mutex_lock(&data->lock, K_FOREVER);
+
+	if (handler != NULL && data->odr == 0U) {
+		/* Single-shot measurements have no data stream to follow. */
+		ret = -EINVAL;
+		goto out;
+	}
 
 	ret = gpio_pin_interrupt_configure_dt(&cfg->int_gpio, GPIO_INT_DISABLE);
 	if (ret < 0) {
