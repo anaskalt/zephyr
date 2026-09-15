@@ -42,8 +42,15 @@ LOG_MODULE_REGISTER(eeprom_st25dv, CONFIG_EEPROM_LOG_LEVEL);
 /* Timing, from the I2C AC characteristics tables. */
 #define ST25DV_TBOOT_MS         2   /* tbootDC max 0.6 ms, rounded up to ticks */
 #define ST25DV_TW_MS            5   /* EEPROM write cycle, max */
-#define ST25DV_TW_TIMEOUT_MS    15  /* ACK-poll window per row */
 #define ST25DV_BUSY_TIMEOUT_MS  80  /* RF-busy retry window per access */
+/*
+ * ACK-poll window per row. A device-select NACK means either the write
+ * cycle or an RF transaction holding the tag, so the window has to cover
+ * both; the poll cannot report a rejected write anyway.
+ */
+#define ST25DV_TW_TIMEOUT_MS    (ST25DV_TW_MS + ST25DV_BUSY_TIMEOUT_MS)
+#define ST25DV_IDENTIFY_TRIES   3   /* boot probe attempts before giving up */
+#define ST25DV_IDENTIFY_RETRY_MS 20
 #define ST25DV_BUSY_RETRY_MS    1
 #define ST25DV_ROW_SIZE         16
 #define ST25DV_SYS_ADDR_BIT     0x04
@@ -224,7 +231,13 @@ static int st25dv_wait_write_cycle(const struct device *dev, bool sys)
 			return 0;
 		}
 		if (k_uptime_get() >= deadline) {
-			return -ETIMEDOUT;
+			/*
+			 * Well past tW: the row is committed and the NACKs
+			 * come from the RF side. Reporting an error here
+			 * would abort a multi-row write half way.
+			 */
+			LOG_DBG("ACK poll gave up after %d ms, RF busy", ST25DV_TW_TIMEOUT_MS);
+			return 0;
 		}
 		k_sleep(K_MSEC(1));
 	}
@@ -299,6 +312,33 @@ static int st25dv_present_password_locked(const struct device *dev, const uint8_
 	}
 
 	return (sso & ST25DV_I2C_SSO_OPEN) ? 0 : -EACCES;
+}
+
+/*
+ * Reopen the security session when it is closed.
+ *
+ * With vcc-gpios the supply is dropped between two API calls, and that
+ * power cycle is a POR: the session a caller opened with
+ * st25dv_present_password() is gone by the time it calls a write. Every
+ * session-dependent entry point reopens it here with the configured
+ * password so the caller does not have to know about the gating.
+ */
+static int st25dv_session_ensure_locked(const struct device *dev)
+{
+	struct st25dv_data *data = dev->data;
+	uint8_t sso;
+	int ret;
+
+	ret = st25dv_read_byte(dev, false, ST25DV_DYN_I2C_SSO, &sso);
+	if (ret < 0) {
+		return ret;
+	}
+
+	if ((sso & ST25DV_I2C_SSO_OPEN) != 0U) {
+		return 0;
+	}
+
+	return st25dv_present_password_locked(dev, data->password);
 }
 
 /* ------------------------------------------------------------------ */
@@ -482,6 +522,9 @@ int st25dv_write_sys_reg(const struct device *dev, uint16_t reg, uint8_t val)
 
 	ret = st25dv_mailbox_off_locked(dev);
 	if (ret == 0) {
+		ret = st25dv_session_ensure_locked(dev);
+	}
+	if (ret == 0) {
 		ret = st25dv_write_sys_byte(dev, reg, val);
 	}
 
@@ -537,6 +580,10 @@ int st25dv_present_password(const struct device *dev, const uint8_t *password)
 	}
 
 	ret = st25dv_present_password_locked(dev, password);
+	if (ret == 0 && password != data->password) {
+		/* The session-dependent calls re-present it after a VCC cycle. */
+		memcpy(data->password, password, ST25DV_PWD_LEN);
+	}
 
 	st25dv_end(dev);
 
@@ -554,6 +601,9 @@ int st25dv_write_password(const struct device *dev, const uint8_t password[8])
 	}
 
 	ret = st25dv_mailbox_off_locked(dev);
+	if (ret == 0) {
+		ret = st25dv_session_ensure_locked(dev);
+	}
 	if (ret == 0) {
 		memcpy(&data->tx[2], password, ST25DV_PWD_LEN);
 		data->tx[2 + ST25DV_PWD_LEN] = ST25DV_PWD_WRITE_CODE;
@@ -1067,18 +1117,35 @@ static int st25dv_init(const struct device *dev)
 		}
 	}
 
-	ret = pm_device_driver_init(dev, st25dv_pm_action);
+	/*
+	 * Runtime PM is only switched on once init returns, so the
+	 * pm_device_runtime_get() inside st25dv_begin() cannot raise VCC yet:
+	 * power the tag by hand for the probe. A reader sitting on the
+	 * antenna NACKs every access, so give the probe a few attempts
+	 * before declaring the tag absent - a failed init is permanent.
+	 */
+	ret = st25dv_pm_action(dev, PM_DEVICE_ACTION_RESUME);
 	if (ret < 0) {
 		return ret;
 	}
 
-	ret = st25dv_identify(dev);
+	for (int attempt = 0; attempt < ST25DV_IDENTIFY_TRIES; attempt++) {
+		ret = st25dv_identify(dev);
+		if (ret == 0) {
+			break;
+		}
+		LOG_WRN("tag probe %d/%d failed (%d)", attempt + 1, ST25DV_IDENTIFY_TRIES, ret);
+		k_sleep(K_MSEC(ST25DV_IDENTIFY_RETRY_MS));
+	}
+
+	(void)st25dv_pm_action(dev, PM_DEVICE_ACTION_SUSPEND);
+
 	if (ret < 0) {
 		LOG_ERR("tag not responding (%d)", ret);
 		return ret;
 	}
 
-	return 0;
+	return pm_device_driver_init(dev, st25dv_pm_action);
 }
 
 static DEVICE_API(eeprom, st25dv_eeprom_api) = {

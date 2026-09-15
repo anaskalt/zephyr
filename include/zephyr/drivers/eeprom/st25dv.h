@@ -172,8 +172,9 @@ int st25dv_read_sys_reg(const struct device *dev, uint16_t reg, uint8_t *val);
 /**
  * @brief Write one system configuration register.
  *
- * Requires an open I2C security session (st25dv_present_password()).
- * Blocks for the EEPROM write cycle.
+ * Opens the I2C security session with the configured password when it is
+ * not already open: with vcc-gpios the supply is dropped between calls and
+ * that power cycle closes any session. Blocks for the EEPROM write cycle.
  */
 int st25dv_write_sys_reg(const struct device *dev, uint16_t reg, uint8_t val);
 
@@ -226,6 +227,10 @@ int st25dv_gpo_output_enable(const struct device *dev, bool enable);
  * Enabling also sets MB_MODE in the static FTM register when it is still
  * at its factory value (needs the security session). While the mailbox is
  * enabled no EEPROM write is possible; eeprom_write() disables it first.
+ *
+ * With vcc-gpios the driver drops the supply a short while after each
+ * call, and that power cycle clears MB_CTRL_Dyn: a mailbox session has to
+ * run without long pauses, or be re-enabled before each transfer.
  */
 int st25dv_mailbox_enable(const struct device *dev, bool enable);
 
