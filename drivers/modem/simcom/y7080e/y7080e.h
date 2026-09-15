@@ -94,6 +94,8 @@ enum y7080e_flag {
 	Y7080E_FLAG_PDN_ACTIVE,
 	Y7080E_FLAG_RRC_CONNECTED,
 	Y7080E_FLAG_CAPTURE,
+	/* A setting that has to survive the next supply cut is only in RAM. */
+	Y7080E_FLAG_NV_DIRTY,
 };
 
 /* ------------------------------------------------------------------ */

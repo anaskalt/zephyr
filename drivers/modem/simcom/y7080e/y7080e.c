@@ -944,12 +944,13 @@ static int establish_at_link(void)
 		return ret;
 	}
 
-	ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+IPR=%u", (unsigned int)MDM_UART_BAUD);
-	if (ret != 0) {
-		LOG_ERR("AT+IPR failed (%d)", ret);
-		(void)uart_set_baud(MDM_UART_BAUD);
-		return ret;
-	}
+	/*
+	 * The new rate applies immediately and the manual warns that the OK
+	 * cannot be guaranteed to reach us at the old rate (Y70XX AT manual
+	 * 5.2.1/5.2.2): send the command, ignore whatever comes back, and let
+	 * the AT handshake at the new rate decide.
+	 */
+	(void)y7080e_cmd_tolerant(MDM_PROBE_TIMEOUT_S, "AT+IPR=%u", (unsigned int)MDM_UART_BAUD);
 
 	k_sleep(K_MSEC(100));
 	ret = uart_set_baud(MDM_UART_BAUD);
@@ -960,6 +961,8 @@ static int establish_at_link(void)
 	ret = at_probe(MDM_PROBE_TRIES);
 	if (ret == 0) {
 		LOG_INF("module moved to %u baud", (unsigned int)MDM_UART_BAUD);
+		/* Keep the rate across the next supply cut. */
+		y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
 	}
 
 	return ret;
@@ -1208,6 +1211,17 @@ static int modem_configure_persistent(void)
 		(void)modem_nv_save();
 	}
 #endif
+
+	/*
+	 * A baud switch (or anything else that only reached RAM) still has to
+	 * be committed, otherwise the next supply cut brings the module back
+	 * at the factory rate and the whole fallback is paid again.
+	 */
+	if (y7080e_flag(Y7080E_FLAG_NV_DIRTY)) {
+		y7080e_flag_clear(Y7080E_FLAG_NV_DIRTY);
+		ret = modem_nv_save();
+		rebooted = rebooted || (ret > 0);
+	}
 
 	return rebooted ? 1 : 0;
 }
