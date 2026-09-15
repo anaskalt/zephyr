@@ -44,6 +44,13 @@
 
 #define MDM_MAX_DATA_LENGTH CONFIG_MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH
 #define MDM_CMD_BUF_SIZE    (2 * MDM_MAX_DATA_LENGTH + 96)
+
+/* The module's command line buffer is 559 characters (AT manual 1.4.4). */
+#define MDM_CMD_LINE_MAX    559
+BUILD_ASSERT(2 * MDM_MAX_DATA_LENGTH + 45 <= MDM_CMD_LINE_MAX,
+	     "hex payload plus the AT+NSOSTF header must fit the module command line");
+BUILD_ASSERT(CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE >= 2 * MDM_MAX_DATA_LENGTH + 64,
+	     "chat buffer must hold the longest AT+NSORF reply");
 #define MDM_UART_BUF_SIZE   CONFIG_MODEM_SIMCOM_Y7080E_UART_BUF_SIZE
 #define MDM_CHAT_BUF_SIZE   CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE
 #define MDM_CHAT_ARGV_COUNT 24

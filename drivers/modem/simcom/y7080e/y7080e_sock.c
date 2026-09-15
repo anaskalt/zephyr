@@ -308,6 +308,11 @@ static ssize_t offload_sendto(void *obj, const void *buf, size_t len, int flags,
 	}
 
 	if (len > MDM_MAX_DATA_LENGTH) {
+		if (sock->type == NET_SOCK_DGRAM) {
+			/* Truncating a datagram would deliver a corrupt one. */
+			errno = EMSGSIZE;
+			return -1;
+		}
 		len = MDM_MAX_DATA_LENGTH;
 	}
 

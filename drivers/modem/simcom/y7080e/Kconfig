@@ -90,19 +90,28 @@ config MODEM_SIMCOM_Y7080E_UDP_SEND_FLAG
 
 config MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH
 	int "Largest payload of one send or receive, in bytes"
-	default 512
+	default 255
 	range 16 1400
 	help
 	  Payloads travel hex encoded inside one AT line, so this also sizes
 	  the chat receive buffer and the command buffer (2 x length + header).
 
+	  The default is what the module's own command line buffer allows:
+	  the AT manual (1.4.4) caps a command line at 559 characters, and
+	  "AT+NSOSTF=<id>,<ip>,<port>,<flag>,<len>," costs about 45 of them,
+	  leaving 514 characters, that is 257 hex encoded bytes. Raising it
+	  above 257 makes long sends fail on the module even though
+	  AT+NSOSTF itself accepts a length of up to 1400.
+
 config MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE
 	int "modem_chat receive buffer size"
-	default 1200
+	default 640
+	range 256 4096
 	help
 	  Must exceed the longest response line. An AT+NSORF reply carries
 	  2 x MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH hex characters plus about
-	  60 bytes of header.
+	  60 bytes of header, so keep this at least
+	  2 x MAX_DATA_LENGTH + 64 (the driver checks it at build time).
 
 config MODEM_SIMCOM_Y7080E_UART_BUF_SIZE
 	int "UART backend receive and transmit buffer size (even)"
