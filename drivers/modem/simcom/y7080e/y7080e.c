@@ -1043,7 +1043,15 @@ static void modem_configure_urc(void)
 	(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+NSONMI=1");
 	(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CEDRXS=0");
 	if (ring_gpio.port != NULL) {
-		(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CMSRI=1");
+		/*
+		 * AT+CMSRI=<ring_en>,<duration_ms>,<permanent> (AT manual
+		 * 4.2.5). The manual also warns that RI "cannot be used
+		 * completely at present" without SIMCom support, so the
+		 * driver never relies on the pin: it keeps the UART awake
+		 * itself. Tolerated on purpose.
+		 */
+		(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CMSRI=1,%u,1",
+					  (unsigned int)MDM_RING_PULSE_MS);
 	}
 }
 
@@ -1194,7 +1202,8 @@ static int modem_configure_persistent(void)
 	     strcmp(mdata.cpsms_active, CONFIG_MODEM_SIMCOM_Y7080E_PSM_ACTIVE_TIME) != 0)) {
 		LOG_INF("PSM request TAU %s active %s", CONFIG_MODEM_SIMCOM_Y7080E_PSM_TAU,
 			CONFIG_MODEM_SIMCOM_Y7080E_PSM_ACTIVE_TIME);
-		ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CPSMS=1,,,\"%s\",\"%s\"",
+		/* The manual's examples pass the octets unquoted (10.2.2). */
+		ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CPSMS=1,,,%s,%s",
 				 CONFIG_MODEM_SIMCOM_Y7080E_PSM_TAU,
 				 CONFIG_MODEM_SIMCOM_Y7080E_PSM_ACTIVE_TIME);
 		if (ret == 0) {

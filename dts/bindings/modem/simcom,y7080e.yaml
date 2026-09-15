@@ -44,3 +44,11 @@ properties:
     description: |
       STATUS pin, high once the module firmware is ready. Optional; without
       it the driver waits a fixed time after power-up.
+
+  mdm-ring-gpios:
+    description: |
+      UART1_RI. The module idles it high and pulses it low for the duration
+      set with AT+CMSRI when a URC is waiting, so the line is active low.
+      Declaring it only makes the driver arm RI on the module; the driver
+      never depends on the pin, because the AT manual states the feature is
+      not fully supported without SIMCom involvement.

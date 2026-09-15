@@ -69,6 +69,7 @@
 #define MDM_CONNECT_TIMEOUT_S  30
 #define MDM_STATUS_TIMEOUT_MS  3000
 #define MDM_POWERON_TIMEOUT_MS 5000
+#define MDM_RING_PULSE_MS      120 /* AT+CMSRI duration; the module default */
 #define MDM_PROBE_TRIES        5
 #define MDM_PROBE_TIMEOUT_S    2
 #define MDM_REG_POLL_MS        2000

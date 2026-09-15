@@ -27,7 +27,7 @@
  */
 long y7080e_timer_decode(const char *s, bool is_tau);
 
-/** @brief True when @p s looks like a T3324 octet (non-reserved unit). */
+/** @brief True when @p s is an 8-digit binary octet (any T3324 unit). */
 bool y7080e_is_active_timer(const char *s);
 
 /** @brief True when @p s is an 8-digit binary octet (any T3412 unit). */

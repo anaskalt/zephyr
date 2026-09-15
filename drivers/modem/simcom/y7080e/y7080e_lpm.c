@@ -18,12 +18,19 @@ static const long t3412_unit_seconds[8] = {
 	-1,      /* 111 = deactivated */
 };
 
-/* T3324 (GPRS timer 2) unit multipliers. Units 011..110 are reserved. */
+/*
+ * T3324 (GPRS timer 2) unit multipliers. The AT manual (10.2.2) and
+ * 3GPP TS 24.008 10.5.7.3 agree: every unit other than 111 that is not
+ * one of the three defined ones counts in minutes.
+ */
 static const long t3324_unit_seconds[8] = {
 	2,   /* 000 = 2 seconds */
 	60,  /* 001 = 1 minute */
 	360, /* 010 = 6 minutes */
-	-1, -1, -1, -1,
+	60,  /* 011 */
+	60,  /* 100 */
+	60,  /* 101 */
+	60,  /* 110 */
 	-1,  /* 111 = deactivated */
 };
 
@@ -74,15 +81,9 @@ long y7080e_timer_decode(const char *s, bool is_tau)
 bool y7080e_is_active_timer(const char *s)
 {
 	uint8_t octet;
-	uint8_t unit;
 
-	if (parse_octet(s, &octet) != 0) {
-		return false;
-	}
-
-	unit = (uint8_t)(octet >> 5);
-
-	return unit == 0U || unit == 1U || unit == 2U || unit == 7U;
+	/* Every unit encodes a duration, so any well formed octet will do. */
+	return parse_octet(s, &octet) == 0;
 }
 
 bool y7080e_is_tau_timer(const char *s)
