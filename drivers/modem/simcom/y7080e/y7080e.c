@@ -254,6 +254,10 @@ static void on_urc_cereg(struct modem_chat *chat, char **argv, uint16_t argc, vo
 		y7080e_flag_set(Y7080E_FLAG_ATTACHED);
 	} else {
 		y7080e_flag_clear(Y7080E_FLAG_ATTACHED);
+		if (mdata.state == Y7080E_STATE_NETWORKING && stat != 2U) {
+			/* Not just searching: the registration is gone. */
+			y7080e_change_state(Y7080E_STATE_IDLE);
+		}
 	}
 
 	if (y7080e_cereg_parse_granted(argv, argc, d, &mdata.granted_active_sec,
@@ -278,6 +282,10 @@ static void on_urc_cgev(struct modem_chat *chat, char **argv, uint16_t argc, voi
 		}
 		/* The module drops every socket when the PDN goes away. */
 		y7080e_sock_invalidate_all();
+		if (mdata.state == Y7080E_STATE_NETWORKING) {
+			/* Whoever sends next has to attach again. */
+			y7080e_change_state(Y7080E_STATE_IDLE);
+		}
 	}
 }
 
