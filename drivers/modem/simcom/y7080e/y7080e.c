@@ -27,6 +27,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/net/offloaded_netdev.h>
 #include <zephyr/pm/policy.h>
+#include <zephyr/sys/timeutil.h>
 #include <zephyr/sys/util.h>
 
 #include "y7080e.h"
@@ -1705,6 +1706,8 @@ int mdm_y7080e_get_ip(char *buf, size_t len)
 int mdm_y7080e_get_time(struct tm *t)
 {
 	int year, mon, day, hour, min, sec;
+	int quarters = 0;
+	const char *tz;
 	int ret;
 
 	ret = require_awake();
@@ -1720,12 +1723,18 @@ int mdm_y7080e_get_time(struct tm *t)
 		return ret;
 	}
 
-	/* "yy/MM/dd,hh:mm:ss+zz" or "yyyy/MM/dd,..." */
+	/* "yy/MM/dd,hh:mm:ss+zz", zz in quarter hours (AT manual 4.2.1). */
 	if (sscanf(mdata.cclk, "%d/%d/%d,%d:%d:%d", &year, &mon, &day, &hour, &min, &sec) != 6) {
 		return -EBADMSG;
 	}
 	if (year < 100) {
-		year += 2000;
+		/* 00..69 is 2000..2069, 70..99 is 1970..1999. */
+		year += (year < 70) ? 2000 : 1900;
+	}
+
+	tz = strpbrk(mdata.cclk, "+-");
+	if (tz != NULL) {
+		quarters = (int)strtol(tz, NULL, 10);
 	}
 
 	memset(t, 0, sizeof(*t));
@@ -1735,6 +1744,15 @@ int mdm_y7080e_get_time(struct tm *t)
 	t->tm_hour = hour;
 	t->tm_min = min;
 	t->tm_sec = sec;
+
+	if (quarters != 0) {
+		/* The module reports network local time; the API is UTC. */
+		time_t utc = (time_t)(timeutil_timegm64(t) - (int64_t)quarters * 15 * 60);
+
+		if (gmtime_r(&utc, t) == NULL) {
+			return -EBADMSG;
+		}
+	}
 
 	return 0;
 }
