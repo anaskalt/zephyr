@@ -45,7 +45,8 @@ enum mmc5983ma_attribute {
 	/**
 	 * Periodic SET in continuous mode: val1 = Prd_set code 0..7
 	 * (1, 25, 75, 100, 250, 500, 1000, 2000 measurements), val2 = 0 to
-	 * disable or 1 to enable. Needs auto SET/RESET and continuous mode.
+	 * disable or 1 to enable. Enabling needs auto SET/RESET and the
+	 * continuous mode to be on already, otherwise it returns -EINVAL.
 	 */
 	MMC5983MA_ATTR_PERIODIC_SET,
 };

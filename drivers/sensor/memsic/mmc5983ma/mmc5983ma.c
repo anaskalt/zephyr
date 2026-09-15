@@ -341,6 +341,16 @@ static int mmc5983ma_attr_set(const struct device *dev, enum sensor_channel chan
 			ret = -EINVAL;
 			break;
 		}
+		if (val->val2 != 0 &&
+		    ((data->ctrl0 & MMC5983MA_CTRL0_AUTO_SR_EN) == 0U || data->odr == 0U)) {
+			/*
+			 * The datasheet counts measurements, so the periodic
+			 * SET does nothing without auto set/reset and the
+			 * continuous mode. Refuse rather than pretend.
+			 */
+			ret = -EINVAL;
+			break;
+		}
 		reg = data->ctrl2 &
 		      (uint8_t)~(MMC5983MA_CTRL2_PRD_SET_MASK | MMC5983MA_CTRL2_EN_PRD_SET);
 		reg |= (uint8_t)(val->val1 << 4);
