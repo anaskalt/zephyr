@@ -131,7 +131,11 @@ int mdm_y7080e_force_reset(void);
  * string means "leave whatever the module has", which is what a SIM that
  * provisions its own APN wants.
  *
- * @return 0, -EINVAL for NULL, -ENAMETOOLONG if it does not fit.
+ * Clearing it stops the driver managing the context; it does not erase an
+ * APN already written to the module's non-volatile memory.
+ *
+ * @return 0, -EINVAL for NULL or for characters that cannot appear inside
+ *         a quoted AT argument, -ENAMETOOLONG if it does not fit.
  */
 int mdm_y7080e_set_apn(const char *apn);
 

@@ -1364,6 +1364,17 @@ int mdm_y7080e_set_apn(const char *apn)
 		return -ENAMETOOLONG;
 	}
 
+	/*
+	 * The value is placed between quotes in AT+CGDCONT, so anything
+	 * that could close the string or end the line has to be refused
+	 * here rather than trusted from the caller.
+	 */
+	for (const char *p = apn; *p != '\0'; p++) {
+		if (*p <= ' ' || *p >= 0x7F || *p == '"' || *p == ',') {
+			return -EINVAL;
+		}
+	}
+
 	k_mutex_lock(&mdata.at_lock, K_FOREVER);
 	strcpy(mdata.apn_want, apn);
 	k_mutex_unlock(&mdata.at_lock);
