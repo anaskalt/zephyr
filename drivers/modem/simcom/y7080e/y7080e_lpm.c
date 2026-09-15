@@ -129,13 +129,15 @@ int y7080e_cereg_parse_granted(char **argv, uint16_t argc, int data_idx, long *a
 		active = argv[argc - 1U];
 	}
 
-	a = y7080e_is_active_timer(active) ? y7080e_timer_decode(active, false) : -1;
-	t = y7080e_is_tau_timer(tau) ? y7080e_timer_decode(tau, true) : -1;
-
-	if (a < 0 && t < 0) {
+	if (active[0] == '\0' && tau[0] == '\0') {
+		/* No timer fields at all: leave the last grant untouched. */
 		return -1;
 	}
 
+	a = y7080e_is_active_timer(active) ? y7080e_timer_decode(active, false) : -1;
+	t = y7080e_is_tau_timer(tau) ? y7080e_timer_decode(tau, true) : -1;
+
+	/* Present but deactivated timers revoke an earlier grant. */
 	if (active_sec != NULL) {
 		*active_sec = a;
 	}
@@ -143,7 +145,7 @@ int y7080e_cereg_parse_granted(char **argv, uint16_t argc, int data_idx, long *a
 		*tau_sec = t;
 	}
 
-	return 0;
+	return (a < 0 && t < 0) ? -1 : 0;
 }
 
 int y7080e_csq_to_dbm(int rssi)
