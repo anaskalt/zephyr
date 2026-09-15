@@ -208,6 +208,11 @@ int y7080e_offload_socket(int family, int type, int proto)
 {
 	int fd;
 
+	if (proto == 0) {
+		/* Resolve the POSIX "default protocol" before recording it. */
+		proto = (type == NET_SOCK_DGRAM) ? NET_IPPROTO_UDP : NET_IPPROTO_TCP;
+	}
+
 	fd = modem_socket_get(&mdata.socket_config, family, type, proto);
 	if (fd < 0) {
 		errno = -fd;

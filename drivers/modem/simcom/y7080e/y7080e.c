@@ -1822,8 +1822,19 @@ static struct offloaded_if_api api_funcs = {
 
 static bool offload_is_supported(int family, int type, int proto)
 {
-	return family == NET_AF_INET && (type == NET_SOCK_DGRAM || type == NET_SOCK_STREAM) &&
-	       (proto == NET_IPPROTO_UDP || proto == NET_IPPROTO_TCP);
+	if (family != NET_AF_INET) {
+		return false;
+	}
+
+	/* Protocol 0 means "the default for this type" (POSIX). */
+	if (type == NET_SOCK_DGRAM) {
+		return proto == NET_IPPROTO_UDP || proto == 0;
+	}
+	if (type == NET_SOCK_STREAM) {
+		return proto == NET_IPPROTO_TCP || proto == 0;
+	}
+
+	return false;
 }
 
 /* ------------------------------------------------------------------ */
