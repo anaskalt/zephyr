@@ -91,6 +91,30 @@ static int mmc5983ma_pulse(const struct device *dev, uint8_t bit)
 	return 0;
 }
 
+/*
+ * CTRL0..2 are write only and the part has no reset indication, so a
+ * brown-out leaves the driver's shadows describing a chip that no longer
+ * matches them. Pushing the shadows back is the only way to recover, and
+ * a measurement that never completes is the symptom that asks for it.
+ */
+static int mmc5983ma_reapply(const struct device *dev)
+{
+	struct mmc5983ma_data *data = dev->data;
+	int ret;
+
+	LOG_WRN("measurement lost, restoring the configuration");
+
+	ret = mmc5983ma_reg_write(dev, MMC5983MA_REG_CTRL1, data->ctrl1);
+	if (ret == 0) {
+		ret = mmc5983ma_reg_write(dev, MMC5983MA_REG_CTRL2, data->ctrl2);
+	}
+	if (ret == 0) {
+		ret = mmc5983ma_write_ctrl0(dev, 0);
+	}
+
+	return ret;
+}
+
 static int mmc5983ma_fetch_magn(const struct device *dev)
 {
 	const struct mmc5983ma_config *cfg = dev->config;
@@ -98,8 +122,10 @@ static int mmc5983ma_fetch_magn(const struct device *dev)
 	uint8_t buf[7];
 	uint32_t first_wait = 0;
 	uint32_t timeout = MMC5983MA_MEAS_TIMEOUT_MS;
+	bool retried = false;
 	int ret;
 
+retry:
 	if (data->odr == 0U) {
 		ret = mmc5983ma_write_ctrl0(dev, MMC5983MA_CTRL0_TM_M);
 		if (ret < 0) {
@@ -116,6 +142,12 @@ static int mmc5983ma_fetch_magn(const struct device *dev)
 	}
 
 	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_M_DONE, first_wait, timeout);
+	if (ret == -ETIMEDOUT && !retried) {
+		retried = true;
+		if (mmc5983ma_reapply(dev) == 0) {
+			goto retry;
+		}
+	}
 	if (ret < 0) {
 		return ret;
 	}
