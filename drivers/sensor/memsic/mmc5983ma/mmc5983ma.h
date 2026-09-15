@@ -66,6 +66,7 @@
 
 /* Timing. */
 #define MMC5983MA_POR_TIME_MS         15   /* "power on time is 10 ms" */
+#define MMC5983MA_ID_TRIES            3    /* probe attempts at init */
 #define MMC5983MA_SET_RESET_TIME_US   100  /* pulse is 500 ns */
 #define MMC5983MA_MEAS_TIMEOUT_MS     30
 

@@ -257,6 +257,16 @@ static int mmc5983ma_set_odr(const struct device *dev, uint16_t hz)
 	if ((hz == 200U && bw < 1U) || (hz == 1000U && bw != 3U)) {
 		return -EINVAL;
 	}
+#ifdef CONFIG_MMC5983MA_TRIGGER
+	if (hz == 0U && data->handler != NULL) {
+		/*
+		 * The data-ready trigger follows the continuous stream. In
+		 * single shot every fetch would re-raise INT, and a handler
+		 * that fetches would run forever: disarm it first.
+		 */
+		return -EBUSY;
+	}
+#endif
 
 	ctrl2 = data->ctrl2 & (uint8_t)~(MMC5983MA_CTRL2_CM_FREQ_MASK | MMC5983MA_CTRL2_CMM_EN);
 	if (code != 0U) {
@@ -399,7 +409,19 @@ static int mmc5983ma_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	ret = mmc5983ma_reg_read(dev, MMC5983MA_REG_PRODUCT_ID, &id);
+	/*
+	 * A reset that lands inside a read leaves the part holding SDA low
+	 * until it finishes the byte; it has no reset pin and stays powered,
+	 * so give the bus a moment and try again before declaring it absent.
+	 */
+	for (int attempt = 0; attempt < MMC5983MA_ID_TRIES; attempt++) {
+		ret = mmc5983ma_reg_read(dev, MMC5983MA_REG_PRODUCT_ID, &id);
+		if (ret == 0) {
+			break;
+		}
+		LOG_WRN("product ID read %d/%d failed (%d)", attempt + 1, MMC5983MA_ID_TRIES, ret);
+		k_sleep(K_MSEC(MMC5983MA_POR_TIME_MS));
+	}
 	if (ret < 0) {
 		LOG_ERR("product ID read failed (%d)", ret);
 		return ret;

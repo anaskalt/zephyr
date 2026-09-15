@@ -27,7 +27,8 @@ extern "C" {
  * measurement mode: 0 (single shot, the default), 1, 10, 20, 50, 100,
  * 200 or 1000 Hz. 200 Hz needs a bandwidth of at least 1 and 1000 Hz a
  * bandwidth of 3. The die temperature cannot be measured while the
- * continuous mode is running.
+ * continuous mode is running, and going back to single shot while a
+ * data-ready trigger is armed returns -EBUSY: disarm the trigger first.
  */
 enum mmc5983ma_attribute {
 	/**
