@@ -50,9 +50,10 @@ int mmc5983ma_write_ctrl0(const struct device *dev, uint8_t extra_bits)
 	return mmc5983ma_reg_write(dev, MMC5983MA_REG_CTRL0, data->ctrl0 | extra_bits);
 }
 
-static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t first_wait_ms)
+static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t first_wait_ms,
+				 uint32_t timeout_ms)
 {
-	int64_t deadline = k_uptime_get() + MMC5983MA_MEAS_TIMEOUT_MS;
+	int64_t deadline = k_uptime_get() + timeout_ms;
 	uint8_t status;
 	int ret;
 
@@ -96,6 +97,7 @@ static int mmc5983ma_fetch_magn(const struct device *dev)
 	struct mmc5983ma_data *data = dev->data;
 	uint8_t buf[7];
 	uint32_t first_wait = 0;
+	uint32_t timeout = MMC5983MA_MEAS_TIMEOUT_MS;
 	int ret;
 
 	if (data->odr == 0U) {
@@ -108,9 +110,12 @@ static int mmc5983ma_fetch_magn(const struct device *dev)
 			/* SET and RESET pulses precede the measurement. */
 			first_wait += 1U;
 		}
+	} else {
+		/* Continuous mode: the next sample is at most one period away. */
+		timeout = MAX(timeout, (2U * 1000U) / data->odr + 10U);
 	}
 
-	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_M_DONE, first_wait);
+	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_M_DONE, first_wait, timeout);
 	if (ret < 0) {
 		return ret;
 	}
@@ -143,7 +148,7 @@ static int mmc5983ma_fetch_temp(const struct device *dev)
 		return ret;
 	}
 
-	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_T_DONE, 1);
+	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_T_DONE, 1, MMC5983MA_MEAS_TIMEOUT_MS);
 	if (ret < 0) {
 		return ret;
 	}
