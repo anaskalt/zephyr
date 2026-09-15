@@ -1527,6 +1527,8 @@ int mdm_y7080e_wake(void)
 
 	y7080e_flag_clear(Y7080E_FLAG_POWERON);
 	k_sem_reset(&mdata.sem_poweron);
+	/* Only a +POWERON from this pulse may decide "it restarted". */
+	mdata.poweron_cause = -1;
 
 	reset_pulse_wake();
 
