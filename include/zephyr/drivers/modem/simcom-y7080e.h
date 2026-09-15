@@ -122,6 +122,22 @@ int mdm_y7080e_wake(void);
  */
 int mdm_y7080e_force_reset(void);
 
+/**
+ * @brief Override the APN of the default PDP context.
+ *
+ * Takes precedence over CONFIG_MODEM_SIMCOM_Y7080E_APN. Call it before the
+ * first mdm_y7080e_start_network(); afterwards it only takes effect on the
+ * next power-on, because writing the context needs the radio off. An empty
+ * string means "leave whatever the module has", which is what a SIM that
+ * provisions its own APN wants.
+ *
+ * @return 0, -EINVAL for NULL, -ENAMETOOLONG if it does not fit.
+ */
+int mdm_y7080e_set_apn(const char *apn);
+
+/** @brief APN the module reported for the default context (AT+CGDCONT?). */
+const char *mdm_y7080e_get_apn(void);
+
 /** @brief Current driver state. */
 enum y7080e_state mdm_y7080e_get_state(void);
 

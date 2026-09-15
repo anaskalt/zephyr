@@ -1149,6 +1149,7 @@ static bool band_list_equal(const char *a, const char *b)
  */
 static int modem_configure_persistent(void)
 {
+	const char *want_apn;
 	bool rebooted = false;
 	int ret;
 
@@ -1181,16 +1182,21 @@ static int modem_configure_persistent(void)
 		}
 	}
 
-	/* APN of the default context. */
-	if (CONFIG_MODEM_SIMCOM_Y7080E_APN[0] != '\0') {
+	/*
+	 * APN of the default context. mdm_y7080e_set_apn() overrides the
+	 * Kconfig default; an empty string on both means the SIM's own
+	 * provisioning is left alone.
+	 */
+	want_apn = (mdata.apn_want[0] != '\0') ? mdata.apn_want
+						: CONFIG_MODEM_SIMCOM_Y7080E_APN;
+	if (want_apn[0] != '\0') {
 		mdata.apn[0] = '\0';
 		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CGDCONT?") == 0 &&
-		    strcmp(mdata.apn, CONFIG_MODEM_SIMCOM_Y7080E_APN) != 0) {
-			LOG_INF("APN '%s' -> '%s'", mdata.apn, CONFIG_MODEM_SIMCOM_Y7080E_APN);
+		    strcmp(mdata.apn, want_apn) != 0) {
+			LOG_INF("APN '%s' -> '%s'", mdata.apn, want_apn);
 			if (radio_off() == 0) {
 				ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S,
-						 "AT+CGDCONT=0,\"IP\",\"%s\"",
-						 CONFIG_MODEM_SIMCOM_Y7080E_APN);
+						 "AT+CGDCONT=0,\"IP\",\"%s\"", want_apn);
 				if (ret == 0) {
 					ret = modem_nv_save();
 					rebooted = (ret > 0);
@@ -1347,6 +1353,27 @@ out:
 	k_mutex_unlock(&mdata.at_lock);
 
 	return ret;
+}
+
+int mdm_y7080e_set_apn(const char *apn)
+{
+	if (apn == NULL) {
+		return -EINVAL;
+	}
+	if (strlen(apn) >= sizeof(mdata.apn_want)) {
+		return -ENAMETOOLONG;
+	}
+
+	k_mutex_lock(&mdata.at_lock, K_FOREVER);
+	strcpy(mdata.apn_want, apn);
+	k_mutex_unlock(&mdata.at_lock);
+
+	return 0;
+}
+
+const char *mdm_y7080e_get_apn(void)
+{
+	return mdata.apn;
 }
 
 int mdm_y7080e_force_reset(void)

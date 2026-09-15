@@ -167,6 +167,8 @@ struct y7080e_data {
 	char cclk[24];
 	char nband[32];
 	char apn[MDM_APN_LENGTH];
+	/* Runtime override of CONFIG_MODEM_SIMCOM_Y7080E_APN, if any. */
+	char apn_want[MDM_APN_LENGTH];
 	uint8_t cpsms_mode;
 	char cpsms_tau[12];
 	char cpsms_active[12];
