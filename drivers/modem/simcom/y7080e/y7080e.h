@@ -127,6 +127,8 @@ struct y7080e_data {
 	/* Sockets */
 	struct modem_socket_config socket_config;
 	struct modem_socket sockets[MDM_MAX_SOCKETS];
+	/* O_NONBLOCK per socket, indexed like the array above. */
+	bool sock_nonblock[MDM_MAX_SOCKETS];
 	struct net_if *iface;
 	uint8_t mac_addr[6];
 

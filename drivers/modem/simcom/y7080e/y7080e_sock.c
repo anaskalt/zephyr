@@ -403,6 +403,21 @@ out:
 	return (ssize_t)len;
 }
 
+/* Index of a socket in the driver's pool, or -1. */
+static int y7080e_sock_index(const struct modem_socket *sock)
+{
+	ptrdiff_t idx = sock - &mdata.sockets[0];
+
+	return (idx >= 0 && idx < (ptrdiff_t)ARRAY_SIZE(mdata.sockets)) ? (int)idx : -1;
+}
+
+static bool y7080e_sock_nonblock(const struct modem_socket *sock)
+{
+	int idx = y7080e_sock_index(sock);
+
+	return (idx >= 0) && mdata.sock_nonblock[idx];
+}
+
 static ssize_t offload_recvfrom(void *obj, void *buf, size_t max_len, int flags,
 				struct net_sockaddr *src_addr, net_socklen_t *addrlen)
 {
@@ -426,11 +441,18 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t max_len, int flags,
 			errno = ENOTCONN;
 			return -1;
 		}
-		if (flags & ZSOCK_MSG_DONTWAIT) {
+		if ((flags & ZSOCK_MSG_DONTWAIT) || y7080e_sock_nonblock(sock)) {
 			errno = EAGAIN;
 			return -1;
 		}
+		/*
+		 * The +NSONMI that ends this wait arrives on the UART, and
+		 * STOP2 puts the UART pins in their sleep state: keep the SoC
+		 * out of it for as long as we are listening.
+		 */
+		y7080e_pm_lock();
 		modem_socket_wait_data(&mdata.socket_config, sock);
+		y7080e_pm_unlock();
 		pending = modem_socket_next_packet_size(&mdata.socket_config, sock);
 		if (pending == 0) {
 			/* Woken by a close indication. */
@@ -605,9 +627,22 @@ static int offload_ioctl(void *obj, unsigned int request, va_list args)
 		*avail = modem_socket_next_packet_size(&mdata.socket_config, sock);
 		return 0;
 	}
-	case ZVFS_F_GETFL:
-	case ZVFS_F_SETFL:
+	case ZVFS_F_GETFL: {
+		int idx = y7080e_sock_index(sock);
+
+		return (idx >= 0 && mdata.sock_nonblock[idx]) ? ZVFS_O_NONBLOCK : 0;
+	}
+	case ZVFS_F_SETFL: {
+		int flags = va_arg(args, int);
+		int idx = y7080e_sock_index(sock);
+
+		if (idx < 0) {
+			errno = EBADF;
+			return -1;
+		}
+		mdata.sock_nonblock[idx] = (flags & ZVFS_O_NONBLOCK) != 0;
 		return 0;
+	}
 	default:
 		errno = EINVAL;
 		return -1;
