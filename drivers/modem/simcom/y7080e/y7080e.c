@@ -1471,11 +1471,15 @@ int mdm_y7080e_sleep(void)
 	 */
 	if (k_sem_take(&mdata.sem_powerdown, K_MSEC(CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS)) !=
 	    0) {
+		/*
+		 * The module is demonstrably still awake. Keep the link and
+		 * the state as they are, so the caller can still talk to it
+		 * and power it down cleanly instead of cutting its supply.
+		 */
 		LOG_WRN("no +POWERDOWN within %d ms (PSM not granted?)",
 			CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS);
 		ret = -ETIMEDOUT;
-	} else {
-		ret = 0;
+		goto out;
 	}
 
 	/* Sockets do not survive deep sleep. */
@@ -1483,7 +1487,9 @@ int mdm_y7080e_sleep(void)
 
 	pipe_close();
 	y7080e_change_state(Y7080E_STATE_SLEEPING);
+	ret = 0;
 
+out:
 	y7080e_pm_unlock();
 	k_mutex_unlock(&mdata.at_lock);
 
