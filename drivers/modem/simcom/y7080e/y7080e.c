@@ -1310,8 +1310,17 @@ int mdm_y7080e_power_off(void)
 		goto out;
 	}
 
-	if (mdata.state == Y7080E_STATE_SLEEPING) {
-		/* Nothing to say to a sleeping module: cut the supply. */
+	if (mdata.state == Y7080E_STATE_SLEEPING && y7080e_flag(Y7080E_FLAG_PSM_SLEEP)) {
+		/* It reported +POWERDOWN: its NV is saved, cut the supply. */
+		goto cut;
+	}
+
+	/*
+	 * Anything else is still running, so it gets the documented software
+	 * power-down first. The pipe is closed while sleeping; reopening it
+	 * is a no-op when it is already open.
+	 */
+	if (pipe_open() < 0) {
 		goto cut;
 	}
 
