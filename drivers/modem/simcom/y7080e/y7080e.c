@@ -1676,11 +1676,12 @@ int mdm_y7080e_wake(void)
 	reset_pulse_wake();
 
 	/*
-	 * A module in PSM announces the wake with ^SIMST (AT manual 2.2.6).
-	 * One that was awake, say for a periodic TAU, ignores the pulse and
-	 * simply answers the probe.
+	 * A module in deep sleep announces the wake with ^SIMST (AT manual
+	 * 2.2.6). One that was awake, say for a periodic TAU or because a
+	 * work lock kept it up, ignores the pulse, says nothing and simply
+	 * answers the probe: do not give it long.
 	 */
-	(void)k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_POWERON_TIMEOUT_MS));
+	(void)k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_WAKE_SIMST_TIMEOUT_MS));
 
 	ret = at_probe(MDM_PROBE_TRIES);
 	if (ret != 0) {
