@@ -85,6 +85,8 @@ BUILD_ASSERT(CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE >= 2 * MDM_MAX_DATA_LENGTH
 #define MDM_PDN_TIMEOUT_S      60
 /* AT+WORKLOCK=0 sent at most this often to bring the lock count to zero. */
 #define MDM_WORKLOCK_RELEASE_MAX 8
+/* Extra sleep-wait periods a module that is still visibly busy can earn. */
+#define MDM_SLEEP_EXTENSIONS_MAX 3
 
 /* RESET pulse widths for the two AT+RESETCTL modes. */
 #define MDM_WAKE_PULSE_MODE1_MS 100
@@ -108,6 +110,8 @@ enum y7080e_flag {
 	Y7080E_FLAG_CAPTURE,
 	/* A setting that has to survive the next supply cut is only in RAM. */
 	Y7080E_FLAG_NV_DIRTY,
+	/* +CSCON or "EXIT PSM" seen since the sleep wait last looked. */
+	Y7080E_FLAG_ACTIVITY,
 };
 
 /* ------------------------------------------------------------------ */

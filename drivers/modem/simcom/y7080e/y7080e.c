@@ -235,6 +235,7 @@ static void on_urc_mnbiotevent(struct modem_chat *chat, char **argv, uint16_t ar
 		k_sem_give(&mdata.sem_powerdown);
 	} else if (strstr(argv[1], "EXIT") != NULL) {
 		y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
+		y7080e_flag_set(Y7080E_FLAG_ACTIVITY);
 		LOG_INF("PSM exited");
 	}
 }
@@ -333,6 +334,7 @@ static void on_urc_cscon(struct modem_chat *chat, char **argv, uint16_t argc, vo
 	}
 	second = (argc >= 3) ? field_int(argv[2]) : -1;
 	mode = (second == 0 || second == 1) ? second : field_int(argv[1]);
+	y7080e_flag_set(Y7080E_FLAG_ACTIVITY);
 	if (mode == 1) {
 		y7080e_flag_set(Y7080E_FLAG_RRC_CONNECTED);
 	} else {
@@ -1595,6 +1597,7 @@ static void release_work_lock(void)
 
 int mdm_y7080e_sleep(void)
 {
+	int periods;
 	int ret;
 
 	if (mdata.state == Y7080E_STATE_OFF || mdata.state == Y7080E_STATE_SLEEPING) {
@@ -1606,6 +1609,7 @@ int mdm_y7080e_sleep(void)
 
 	y7080e_flag_clear(Y7080E_FLAG_POWERDOWN);
 	y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
+	y7080e_flag_clear(Y7080E_FLAG_ACTIVITY);
 	k_sem_reset(&mdata.sem_powerdown);
 
 	release_work_lock();
@@ -1615,9 +1619,24 @@ int mdm_y7080e_sleep(void)
 	 * seconds with a grant. The module then reports +MNBIOTEVENT
 	 * "ENTER PSM" (+NPSMR: 1, or +POWERDOWN in the power-off NV mode);
 	 * without a grant nothing comes.
+	 *
+	 * The uplink itself can start late, which moves all of that back:
+	 * once it left PSM 14 s after AT+NSOSTF instead of the usual second.
+	 * A module that keeps reporting RRC or PSM activity is busy, not
+	 * refusing PSM, so a period with activity in it earns another one.
 	 */
-	if (k_sem_take(&mdata.sem_powerdown, K_MSEC(CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS)) !=
-	    0) {
+	for (periods = 1;; periods++) {
+		if (k_sem_take(&mdata.sem_powerdown,
+			       K_MSEC(CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS)) == 0) {
+			break;
+		}
+		if (periods <= MDM_SLEEP_EXTENSIONS_MAX &&
+		    atomic_test_and_clear_bit(&mdata.flags, Y7080E_FLAG_ACTIVITY)) {
+			LOG_INF("module still busy, waiting another %d ms for PSM",
+				CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS);
+			continue;
+		}
+
 		/*
 		 * The module is demonstrably still awake. Take the lock back
 		 * and keep the link and the state as they are, so the caller
@@ -1625,7 +1644,7 @@ int mdm_y7080e_sleep(void)
 		 * cutting its supply.
 		 */
 		LOG_WRN("no PSM entry within %d ms (PSM not granted?)",
-			CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS);
+			periods * CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS);
 		(void)y7080e_cmd_tolerant(MDM_PROBE_TIMEOUT_S, "AT+WORKLOCK=1");
 		ret = -ETIMEDOUT;
 		goto out;
