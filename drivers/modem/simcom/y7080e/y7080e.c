@@ -414,6 +414,14 @@ static void on_urc_cpsms(struct modem_chat *chat, char **argv, uint16_t argc, vo
 	}
 }
 
+static void on_urc_worklock(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
+{
+	/* +WORKLOCK:<default>,<internal>,<delay>,<external> (AT manual 3.2.3) */
+	if (argc >= 5) {
+		mdata.worklock_default = field_int(argv[1]);
+	}
+}
+
 static void on_urc_resetctl(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
 {
 	if (argc >= 2) {
@@ -652,6 +660,7 @@ static const struct modem_chat_match unsol_matches[] = {
 	MODEM_CHAT_MATCH("+CGDCONT:", ",", on_urc_cgdcont),
 	MODEM_CHAT_MATCH("+CPSMS:", ",", on_urc_cpsms),
 	MODEM_CHAT_MATCH("+RESETCTL:", ",", on_urc_resetctl),
+	MODEM_CHAT_MATCH("+WORKLOCK:", ",", on_urc_worklock),
 	MODEM_CHAT_MATCH("+CSQ:", ",", on_urc_csq),
 	MODEM_CHAT_MATCH("+CGSN:", ",", on_urc_cgsn),
 	MODEM_CHAT_MATCH("+CIMI:", ",", on_urc_cimi),
@@ -1558,6 +1567,33 @@ out:
 /* Public API: sleep / wake                                             */
 /* ------------------------------------------------------------------ */
 
+/*
+ * The work lock is a counter: AT+WORKLOCK? returns "the number of
+ * worklock holders" and locks must be "used in pairs" (AT manual 3.2.3),
+ * and the module seems to come up with a default user lock already held
+ * (the manual's own example reads 1,0,0,1). One AT+WORKLOCK=0 for our one
+ * AT+WORKLOCK=1 would then leave a lock in place, which fits the first
+ * boards: "ENTER PSM" but never +NPSMR: 1, and a wake pulse that changed
+ * nothing. A chip kept out of deep sleep idles at about 0.75 mA instead
+ * of 1.7 uA, so release until the count reads zero.
+ */
+static void release_work_lock(void)
+{
+	int n;
+
+	for (n = 1; n <= MDM_WORKLOCK_RELEASE_MAX; n++) {
+		(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+WORKLOCK=0");
+		mdata.worklock_default = -1;
+		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+WORKLOCK?") != 0 ||
+		    mdata.worklock_default <= 0) {
+			break;
+		}
+	}
+
+	LOG_INF("work lock released (%d x AT+WORKLOCK=0, default locks %d)",
+		MIN(n, MDM_WORKLOCK_RELEASE_MAX), mdata.worklock_default);
+}
+
 int mdm_y7080e_sleep(void)
 {
 	int ret;
@@ -1573,10 +1609,7 @@ int mdm_y7080e_sleep(void)
 	y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
 	k_sem_reset(&mdata.sem_powerdown);
 
-	ret = y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+WORKLOCK=0");
-	if (ret != 0) {
-		LOG_WRN("AT+WORKLOCK=0 failed (%d)", ret);
-	}
+	release_work_lock();
 
 	/*
 	 * PSM needs the RRC connection released and T3324 run out: a few

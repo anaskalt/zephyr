@@ -81,6 +81,8 @@ BUILD_ASSERT(CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE >= 2 * MDM_MAX_DATA_LENGTH
 #define MDM_PROBE_TIMEOUT_S    2
 #define MDM_REG_POLL_MS        2000
 #define MDM_PDN_TIMEOUT_S      60
+/* AT+WORKLOCK=0 sent at most this often to bring the lock count to zero. */
+#define MDM_WORKLOCK_RELEASE_MAX 8
 
 /* RESET pulse widths for the two AT+RESETCTL modes. */
 #define MDM_WAKE_PULSE_MODE1_MS 100
@@ -148,6 +150,8 @@ struct y7080e_data {
 	int poweron_cause;
 	/* Last ^SIMST <n>; -1 = none since the boot or the wake pulse. */
 	int simst;
+	/* Default user locks from the last AT+WORKLOCK?, -1 = no answer. */
+	int worklock_default;
 	uint8_t registration;
 	uint8_t cfun;
 	uint8_t resetctl_mode;
