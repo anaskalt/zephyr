@@ -1090,9 +1090,18 @@ static void modem_configure_urc(void)
 }
 
 /*
- * AT+NV=SAVE persists the factory NV; some firmware versions reboot the
- * module afterwards. Returns 0 when the module stayed up, 1 when it
- * rebooted (and is back), negative errno otherwise.
+ * AT+NV=SAVE ends in a restart on firmware 2212B07Y7080E: REBOOTING about
+ * 30 ms after the command, never an OK, then ^SIMST once the module is
+ * back. So REBOOTING terminates the command like an OK would.
+ */
+static const struct modem_chat_match nv_save_matches[] = {
+	MODEM_CHAT_MATCH("REBOOTING", "", on_urc_rebooting),
+	MODEM_CHAT_MATCH("OK", "", NULL),
+};
+
+/*
+ * Persist the NV. Returns 0 when the module stayed up, 1 when it
+ * restarted (and is back), negative errno otherwise.
  */
 static int modem_nv_save(void)
 {
@@ -1101,20 +1110,24 @@ static int modem_nv_save(void)
 	y7080e_flag_clear(Y7080E_FLAG_REBOOTING);
 	k_sem_reset(&mdata.sem_poweron);
 
-	ret = y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+NV=SAVE");
-	if (ret != 0) {
-		/* No reply: it may have rebooted before answering. */
-		if (k_sem_take(&mdata.sem_poweron, K_SECONDS(10)) != 0) {
+	ret = y7080e_cmd(nv_save_matches, ARRAY_SIZE(nv_save_matches), MDM_CMD_TIMEOUT_S,
+			 "AT+NV=SAVE");
+	if (ret == 0 && !y7080e_flag(Y7080E_FLAG_REBOOTING)) {
+		/* An OK first: a restart may still follow it. */
+		k_sleep(K_MSEC(200));
+	}
+
+	/* A ^SIMST during the wait is a restart whose REBOOTING got lost. */
+	if (!y7080e_flag(Y7080E_FLAG_REBOOTING) && k_sem_count_get(&mdata.sem_poweron) == 0U) {
+		if (ret != 0) {
+			LOG_WRN("AT+NV=SAVE failed (%d)", ret);
 			return ret;
 		}
-	} else {
-		k_sleep(K_MSEC(200));
-		if (!y7080e_flag(Y7080E_FLAG_REBOOTING)) {
-			return 0;
-		}
-		if (k_sem_take(&mdata.sem_poweron, K_SECONDS(10)) != 0) {
-			LOG_WRN("reboot after NV save not confirmed");
-		}
+		return 0;
+	}
+
+	if (k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_POWERON_TIMEOUT_MS)) != 0) {
+		LOG_WRN("no ^SIMST after the NV save");
 	}
 
 	ret = at_probe(MDM_PROBE_TRIES);
@@ -1123,6 +1136,7 @@ static int modem_nv_save(void)
 	}
 	(void)y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "ATE0");
 	(void)y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CMEE=1");
+	y7080e_flag_clear(Y7080E_FLAG_REBOOTING);
 
 	return 1;
 }
@@ -1167,14 +1181,26 @@ static bool band_list_equal(const char *a, const char *b)
 	return ma == mb;
 }
 
+/* Bands and the PDP context are only writable with the radio off. */
+static bool radio_down(bool *down)
+{
+	if (!*down) {
+		*down = (radio_off() == 0);
+	}
+
+	return *down;
+}
+
 /*
  * Persistent settings: compared first and written only on a difference so
- * a normal boot never touches the module's NV flash. Returns 1 when the
- * module rebooted during the process.
+ * a normal boot never touches the module's NV flash. Whatever changed is
+ * committed by a single AT+NV=SAVE at the end, which restarts the module.
+ * Returns 1 when the module restarted during the process.
  */
 static int modem_configure_persistent(void)
 {
 	const char *want_apn;
+	bool down = false;
 	bool rebooted = false;
 	int ret;
 
@@ -1185,24 +1211,25 @@ static int modem_configure_persistent(void)
 	    mdata.resetctl_mode != CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE) {
 		LOG_INF("RESETCTL %u -> %u", mdata.resetctl_mode,
 			CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE);
-		(void)y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+RESETCTL=%u",
-					  CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE);
+		if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+RESETCTL=%u",
+			       CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE) == 0) {
+			y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+		}
 	}
 	mdata.resetctl_mode = CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE;
 
-	/* Bands: only settable with the radio off. */
 	if (CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST[0] != '\0') {
 		mdata.nband[0] = '\0';
 		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+NBAND?") == 0 &&
-		    !band_list_equal(mdata.nband, CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST)) {
+		    !band_list_equal(mdata.nband, CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST) &&
+		    radio_down(&down)) {
 			LOG_INF("bands %s -> %s", mdata.nband, CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST);
-			if (radio_off() == 0) {
-				ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NBAND=%s",
-						 CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST);
-				if (ret != 0) {
-					LOG_WRN("AT+NBAND rejected (%d)", ret);
-				}
-				(void)radio_on();
+			ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NBAND=%s",
+					 CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST);
+			if (ret == 0) {
+				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+			} else {
+				LOG_WRN("AT+NBAND rejected (%d)", ret);
 			}
 		}
 	}
@@ -1217,18 +1244,14 @@ static int modem_configure_persistent(void)
 	if (want_apn[0] != '\0') {
 		mdata.apn[0] = '\0';
 		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CGDCONT?") == 0 &&
-		    strcmp(mdata.apn, want_apn) != 0) {
+		    strcmp(mdata.apn, want_apn) != 0 && radio_down(&down)) {
 			LOG_INF("APN '%s' -> '%s'", mdata.apn, want_apn);
-			if (radio_off() == 0) {
-				ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S,
-						 "AT+CGDCONT=0,\"IP\",\"%s\"", want_apn);
-				if (ret == 0) {
-					ret = modem_nv_save();
-					rebooted = (ret > 0);
-				} else {
-					LOG_WRN("AT+CGDCONT rejected (%d)", ret);
-				}
-				(void)radio_on();
+			ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S,
+					 "AT+CGDCONT=0,\"IP\",\"%s\"", want_apn);
+			if (ret == 0) {
+				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+			} else {
+				LOG_WRN("AT+CGDCONT rejected (%d)", ret);
 			}
 		}
 	}
@@ -1247,29 +1270,33 @@ static int modem_configure_persistent(void)
 				 CONFIG_MODEM_SIMCOM_Y7080E_PSM_TAU,
 				 CONFIG_MODEM_SIMCOM_Y7080E_PSM_ACTIVE_TIME);
 		if (ret == 0) {
-			ret = modem_nv_save();
-			rebooted = rebooted || (ret > 0);
+			y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
 		} else {
 			LOG_WRN("AT+CPSMS rejected (%d)", ret);
 		}
 	}
 #else
 	mdata.cpsms_mode = 0xFF;
-	if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CPSMS?") == 0 && mdata.cpsms_mode == 1U) {
-		(void)y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CPSMS=0");
-		(void)modem_nv_save();
+	if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CPSMS?") == 0 && mdata.cpsms_mode == 1U &&
+	    y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CPSMS=0") == 0) {
+		y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
 	}
 #endif
 
 	/*
-	 * A baud switch (or anything else that only reached RAM) still has to
-	 * be committed, otherwise the next supply cut brings the module back
-	 * at the factory rate and the whole fallback is paid again.
+	 * One save for all of it, a baud switch from establish_at_link()
+	 * included: without it the next supply cut brings the module back
+	 * at the factory rate and the whole fallback is paid again. The
+	 * restart that follows also brings the radio back up.
 	 */
 	if (y7080e_flag(Y7080E_FLAG_NV_DIRTY)) {
 		y7080e_flag_clear(Y7080E_FLAG_NV_DIRTY);
 		ret = modem_nv_save();
-		rebooted = rebooted || (ret > 0);
+		rebooted = (ret > 0);
+	}
+
+	if (down && !rebooted) {
+		(void)radio_on();
 	}
 
 	return rebooted ? 1 : 0;
