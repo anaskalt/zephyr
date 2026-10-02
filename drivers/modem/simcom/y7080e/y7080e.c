@@ -180,8 +180,8 @@ static void on_urc_simst(struct modem_chat *chat, char **argv, uint16_t argc, vo
 	 * 1 when the SIM was initialised, 2 after a wake that kept its state.
 	 * AT+CFUN=1 brings a 1 too. +POWERON is only sent in the external
 	 * baseboard NV configuration (3.2.4) and firmware 2212B07Y7080E never
-	 * prints it, so this is what ends the boot, NV-save and wake waits;
-	 * each of them resets the semaphore first.
+	 * prints it, so this is what ends the boot and NV-save waits; each of
+	 * them resets the semaphore first.
 	 */
 	k_sem_give(&mdata.sem_poweron);
 }
@@ -949,18 +949,23 @@ static void reset_pulse_wake(void)
 /* Boot                                                                 */
 /* ------------------------------------------------------------------ */
 
-static int at_probe(int tries)
+static int at_probe_timeout(int tries, uint32_t timeout_s)
 {
 	int ret = -EAGAIN;
 
 	for (int i = 0; i < tries && ret != 0; i++) {
-		ret = y7080e_cmd(NULL, 0, MDM_PROBE_TIMEOUT_S, "AT");
+		ret = y7080e_cmd(NULL, 0, timeout_s, "AT");
 		if (ret != 0) {
 			k_sleep(K_MSEC(300));
 		}
 	}
 
 	return ret;
+}
+
+static int at_probe(int tries)
+{
+	return at_probe_timeout(tries, MDM_PROBE_TIMEOUT_S);
 }
 
 /*
@@ -1696,7 +1701,6 @@ int mdm_y7080e_wake(void)
 
 	y7080e_flag_clear(Y7080E_FLAG_POWERON);
 	y7080e_flag_clear(Y7080E_FLAG_REBOOTING);
-	k_sem_reset(&mdata.sem_poweron);
 	/* Only what follows this pulse may tell how the module came back. */
 	mdata.poweron_cause = -1;
 	mdata.simst = -1;
@@ -1704,14 +1708,12 @@ int mdm_y7080e_wake(void)
 	reset_pulse_wake();
 
 	/*
-	 * A module in deep sleep announces the wake with ^SIMST (AT manual
-	 * 2.2.6). One that was awake, say for a periodic TAU or because a
-	 * work lock kept it up, ignores the pulse, says nothing and simply
-	 * answers the probe: do not give it long.
+	 * The manual promises ^SIMST after a deep-sleep wake (2.2.6), yet in
+	 * 17 wakes on the first board the module said nothing and answered AT
+	 * at once. Probe straight away, with a short timeout in case it is
+	 * still coming up; a ^SIMST that does arrive is still recorded.
 	 */
-	(void)k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_WAKE_SIMST_TIMEOUT_MS));
-
-	ret = at_probe(MDM_PROBE_TRIES);
+	ret = at_probe_timeout(MDM_PROBE_TRIES, MDM_WAKE_PROBE_TIMEOUT_S);
 	if (ret != 0) {
 		LOG_ERR("module did not wake (%d)", ret);
 		goto out;

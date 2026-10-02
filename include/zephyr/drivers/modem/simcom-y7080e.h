@@ -114,10 +114,10 @@ int mdm_y7080e_sleep(void);
 /**
  * @brief Wake the module from PSM.
  *
- * Reopens the UART, pulses RESET (short pulse = wake), waits for ^SIMST
- * and an answer to AT, and re-takes the work lock. A module that kept its
- * PSM state stays registered, so no attach is needed. Verifies the
- * registration and leaves the driver in NETWORKING or IDLE accordingly.
+ * Reopens the UART, pulses RESET (short pulse = wake), probes AT and
+ * re-takes the work lock. A module that kept its PSM state stays
+ * registered, so no attach is needed. Verifies the registration and
+ * leaves the driver in NETWORKING or IDLE accordingly.
  *
  * @return 0 when the module answers, negative errno otherwise.
  */

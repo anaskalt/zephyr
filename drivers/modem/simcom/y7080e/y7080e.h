@@ -76,11 +76,11 @@ BUILD_ASSERT(CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE >= 2 * MDM_MAX_DATA_LENGTH
 #define MDM_CONNECT_TIMEOUT_S  30
 #define MDM_STATUS_TIMEOUT_MS  3000
 #define MDM_POWERON_TIMEOUT_MS 5000
-/* A wake that announces itself does so well within this. */
-#define MDM_WAKE_SIMST_TIMEOUT_MS 2000
 #define MDM_RING_PULSE_MS      120 /* AT+CMSRI duration; the module default */
 #define MDM_PROBE_TRIES        5
 #define MDM_PROBE_TIMEOUT_S    2
+/* After a wake pulse the module answers at once or is still coming up. */
+#define MDM_WAKE_PROBE_TIMEOUT_S 1
 #define MDM_REG_POLL_MS        2000
 #define MDM_PDN_TIMEOUT_S      60
 /* AT+WORKLOCK=0 sent at most this often to bring the lock count to zero. */
