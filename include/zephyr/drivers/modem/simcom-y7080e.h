@@ -168,9 +168,11 @@ uint8_t mdm_y7080e_get_registration(void);
 /**
  * @brief Network-granted PSM timers decoded from +CEREG.
  *
- * @param active_time_sec Out, may be NULL. -1 when deactivated.
- * @param tau_sec Out, may be NULL. -1 when deactivated.
- * @return 0 on success, -EAGAIN when no grant was seen yet.
+ * @param active_time_sec Out, may be NULL: T3324 in seconds.
+ * @param tau_sec Out, may be NULL: the extended T3412 in seconds, -1 when
+ *        deactivated, Y7080E_TIMER_ABSENT when the network sent none and
+ *        its standard periodic TAU timer applies.
+ * @return 0 once a T3324 was granted, -EAGAIN before.
  */
 int mdm_y7080e_get_psm_timers(int *active_time_sec, int *tau_sec);
 
@@ -221,6 +223,9 @@ void mdm_y7080e_pm_unlock(void);
 
 /** Unknown RSSI value returned by mdm_y7080e_get_rssi(). */
 #define Y7080E_RSSI_UNKNOWN (-1000)
+
+/** PSM timer the network did not send (see mdm_y7080e_get_psm_timers()). */
+#define Y7080E_TIMER_ABSENT (-2)
 
 #ifdef __cplusplus
 }

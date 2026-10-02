@@ -93,50 +93,101 @@ bool y7080e_is_tau_timer(const char *s)
 	return parse_octet(s, &octet) == 0;
 }
 
+/* A bare decimal of one or two digits, as <n> and <stat> are; -1 otherwise. */
+static int parse_small_uint(const char *s)
+{
+	int v = 0;
+	int n = 0;
+
+	if (s == NULL) {
+		return -1;
+	}
+	while (*s == ' ') {
+		s++;
+	}
+	while (*s >= '0' && *s <= '9' && n < 3) {
+		v = (v * 10) + (*s - '0');
+		s++;
+		n++;
+	}
+	while (*s == ' ') {
+		s++;
+	}
+
+	return (n >= 1 && n <= 2 && *s == '\0') ? v : -1;
+}
+
+int y7080e_cereg_parse_stat(char **argv, uint16_t argc, int *data_idx)
+{
+	int first;
+	int second;
+	int stat;
+	int idx;
+
+	if (argv == NULL || argc < 2U) {
+		return -1;
+	}
+
+	/*
+	 * Read: <n>,<stat>,<tac>,...  URC: <stat>,<tac>,...  Neither the first
+	 * field (<n> 5 and <stat> 5 collide when roaming), nor quoting, nor
+	 * the field count (both tails are optional) tells them apart. The
+	 * second field does: a bare <stat> 0..10 in the read form; "21B9",
+	 * "0000", a quoted string or nothing in the URC.
+	 */
+	first = parse_small_uint(argv[1]);
+	second = (argc >= 3U) ? parse_small_uint(argv[2]) : -1;
+
+	if (first >= 0 && first <= 5 && second >= 0 && second <= 10) {
+		stat = second;
+		idx = 3;
+	} else if (first >= 0 && first <= 10) {
+		stat = first;
+		idx = 2;
+	} else {
+		return -1;
+	}
+
+	if (data_idx != NULL) {
+		*data_idx = idx;
+	}
+
+	return stat;
+}
+
 int y7080e_cereg_parse_granted(char **argv, uint16_t argc, int data_idx, long *active_sec,
 			       long *tau_sec)
 {
-	const char *active = "";
-	const char *tau = "";
+	bool has_active;
+	bool has_tau;
 	int ia;
 	int it;
 	long a;
 	long t;
 
-	if (argv == NULL || data_idx < 2) {
+	if (argv == NULL || data_idx < 2 || data_idx > 3) {
 		return -1;
 	}
 
 	/*
-	 * Y70XX layouts (AT manual 10.2.4):
-	 *   URC  (data_idx 2): tac ci AcT cause reject Active TAU  -> +5 / +6
-	 *   READ (data_idx 3): lac ci AcT rac cause reject Act TAU -> +6 / +7
+	 * Both forms carry the same fields after <stat> (AT manual 10.2.4:
+	 * the read reply shows them "the same as the active report"; the
+	 * <rac> of the read syntax never appears on the wire):
+	 *   tac ci AcT cause_type reject_cause Active-Time Periodic-TAU
 	 */
-	ia = (data_idx >= 3) ? data_idx + 6 : data_idx + 5;
-	it = ia + 1;
+	ia = data_idx + 5;
+	it = data_idx + 6;
+	has_active = argc > (uint16_t)ia && y7080e_is_active_timer(argv[ia]);
+	has_tau = argc > (uint16_t)it && y7080e_is_tau_timer(argv[it]);
 
-	if (argc >= 4U && y7080e_is_active_timer(argv[argc - 2U]) &&
-	    y7080e_is_tau_timer(argv[argc - 1U])) {
-		active = argv[argc - 2U];
-		tau = argv[argc - 1U];
-	} else if (argc > (uint16_t)ia &&
-		   (y7080e_is_active_timer(argv[ia]) ||
-		    (argc > (uint16_t)it && y7080e_is_tau_timer(argv[it])))) {
-		active = argv[ia];
-		if (argc > (uint16_t)it) {
-			tau = argv[it];
-		}
-	} else if (argc >= 8U && y7080e_is_active_timer(argv[argc - 1U])) {
-		active = argv[argc - 1U];
-	}
-
-	if (active[0] == '\0' && tau[0] == '\0') {
+	if (!has_active && !has_tau) {
 		/* No timer fields at all: leave the last grant untouched. */
 		return -1;
 	}
 
-	a = y7080e_is_active_timer(active) ? y7080e_timer_decode(active, false) : -1;
-	t = y7080e_is_tau_timer(tau) ? y7080e_timer_decode(tau, true) : -1;
+	/* No Periodic-TAU: no extended T3412, the network's standard one runs. */
+	a = has_active ? y7080e_timer_decode(argv[ia], false) : Y7080E_TIMER_ABSENT;
+	t = has_tau ? y7080e_timer_decode(argv[it], true) : Y7080E_TIMER_ABSENT;
 
 	/* Present but deactivated timers revoke an earlier grant. */
 	if (active_sec != NULL) {
@@ -146,7 +197,8 @@ int y7080e_cereg_parse_granted(char **argv, uint16_t argc, int data_idx, long *a
 		*tau_sec = t;
 	}
 
-	return (a < 0 && t < 0) ? -1 : 0;
+	/* PSM is granted by T3324 alone. */
+	return (a >= 0) ? 0 : -1;
 }
 
 int y7080e_csq_to_dbm(int rssi)

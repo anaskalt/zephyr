@@ -229,23 +229,16 @@ static const char *const cereg_stat_str[] = {
 static void on_urc_cereg(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
 {
 	uint8_t stat;
+	int ret;
 	int d;
 
-	if (argc < 2) {
+	ret = y7080e_cereg_parse_stat(argv, argc, &d);
+	if (ret < 0) {
+		/* A line we cannot read must not move the registration state. */
+		LOG_WRN("+CEREG: unrecognised line (%u fields)", argc);
 		return;
 	}
-
-	/*
-	 * Read form: +CEREG:<n>,<stat>[,...]  (argv[2] is a bare number)
-	 * URC form:  +CEREG:<stat>[,<tac>,...] (argv[2], if any, is quoted)
-	 */
-	if (argc >= 3 && skip_spaces(argv[2])[0] != '"') {
-		stat = (uint8_t)field_int(argv[2]);
-		d = 3;
-	} else {
-		stat = (uint8_t)field_int(argv[1]);
-		d = 2;
-	}
+	stat = (uint8_t)ret;
 
 	mdata.registration = stat;
 	LOG_INF("+CEREG: %u (%s)", stat,
@@ -261,10 +254,19 @@ static void on_urc_cereg(struct modem_chat *chat, char **argv, uint16_t argc, vo
 		}
 	}
 
+	if (stat == 3U && argc > (uint16_t)(d + 4)) {
+		LOG_INF("+CEREG: denied, cause type %s, reject cause %s", argv[d + 3], argv[d + 4]);
+	}
+
 	if (y7080e_cereg_parse_granted(argv, argc, d, &mdata.granted_active_sec,
 				       &mdata.granted_tau_sec) == 0) {
-		LOG_INF("PSM granted: T3324 %ld s, T3412 %ld s (-1 = deactivated)",
-			mdata.granted_active_sec, mdata.granted_tau_sec);
+		if (mdata.granted_tau_sec == Y7080E_TIMER_ABSENT) {
+			LOG_INF("PSM granted: T3324 %ld s, T3412 network default",
+				mdata.granted_active_sec);
+		} else {
+			LOG_INF("PSM granted: T3324 %ld s, T3412 %ld s (-1 = deactivated)",
+				mdata.granted_active_sec, mdata.granted_tau_sec);
+		}
 	}
 }
 
@@ -983,8 +985,8 @@ static int modem_boot(void)
 
 	atomic_clear(&mdata.flags);
 	mdata.registration = 0;
-	mdata.granted_active_sec = -1;
-	mdata.granted_tau_sec = -1;
+	mdata.granted_active_sec = Y7080E_TIMER_ABSENT;
+	mdata.granted_tau_sec = Y7080E_TIMER_ABSENT;
 	mdata.ip_addr[0] = '\0';
 	k_sem_reset(&mdata.sem_poweron);
 
@@ -1654,7 +1656,7 @@ uint8_t mdm_y7080e_get_registration(void)
 
 int mdm_y7080e_get_psm_timers(int *active_time_sec, int *tau_sec)
 {
-	if (mdata.granted_active_sec < 0 && mdata.granted_tau_sec < 0) {
+	if (mdata.granted_active_sec < 0) {
 		return -EAGAIN;
 	}
 	if (active_time_sec != NULL) {
