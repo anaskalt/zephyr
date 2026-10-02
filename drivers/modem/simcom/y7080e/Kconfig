@@ -46,6 +46,11 @@ config MODEM_SIMCOM_Y7080E_APN
 	  it differs. A value the module refuses is not tried again until it
 	  changes, the MCU restarts or an attach fails.
 
+	  Firmware 2212B07Y7080E refuses AT+CGDCONT=0 (+CME ERROR: 100) while
+	  AT+NCONFIG=AUTOCONNECT is on, its default, and the manual says that
+	  mode "will use the APN provided by the network". Leave this empty
+	  unless the SIM needs an APN the network does not provide.
+
 config MODEM_SIMCOM_Y7080E_BAND_LIST
 	string "NB-IoT band list for AT+NBAND (empty = leave the module setting)"
 	default "20,8"
