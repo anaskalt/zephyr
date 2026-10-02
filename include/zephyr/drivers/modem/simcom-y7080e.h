@@ -203,6 +203,9 @@ int mdm_y7080e_get_ip(char *buf, size_t len);
 /**
  * @brief Read the module clock (AT+CCLK?), UTC.
  *
+ * Firmware 2212B07Y7080E keeps UTC in AT+CCLK? and appends a zone that
+ * need not match the network's; the zone is ignored.
+ *
  * @return 0 on success, negative errno otherwise.
  */
 int mdm_y7080e_get_time(struct tm *t);
