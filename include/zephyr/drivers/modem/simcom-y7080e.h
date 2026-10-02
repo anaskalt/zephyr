@@ -76,8 +76,9 @@ int mdm_y7080e_power_on(void);
 /**
  * @brief Shut the module down and remove its supply.
  *
- * Runs AT+FASTOFF, waits for the module to report +POWERDOWN, then opens
- * the load switch. Leaves the driver in OFF.
+ * A module that reported PSM entry is cut straight away. Anything else
+ * gets AT+FASTOFF first, then the load switch opens. Either way the next
+ * power-on has to attach again. Leaves the driver in OFF.
  */
 int mdm_y7080e_power_off(void);
 
@@ -96,13 +97,17 @@ int mdm_y7080e_start_network(void);
 /**
  * @brief Let the module drop into PSM and close the UART.
  *
- * Releases the module work lock (AT+WORKLOCK=0) and waits for
- * +POWERDOWN for up to CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS. Without
- * a network PSM grant the module never reports +POWERDOWN and the call
- * returns -ETIMEDOUT with the UART still closed: the module then idles at
- * a few hundred microamps until the next wake.
+ * Releases the module work lock (AT+WORKLOCK=0) and waits up to
+ * CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS for the module to report PSM
+ * entry: +MNBIOTEVENT "ENTER PSM", +NPSMR: 1 or, in the power-off NV
+ * mode, +POWERDOWN. On success the UART is closed and the driver is in
+ * SLEEPING; nothing may be sent to the module until mdm_y7080e_wake().
  *
- * @return 0 when the module entered deep sleep, negative errno otherwise.
+ * Without a PSM grant the call returns -ETIMEDOUT and leaves the UART open
+ * and the state unchanged, so the caller can still power the module down
+ * cleanly with mdm_y7080e_power_off().
+ *
+ * @return 0 when the module entered PSM, negative errno otherwise.
  */
 int mdm_y7080e_sleep(void);
 

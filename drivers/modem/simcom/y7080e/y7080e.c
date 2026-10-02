@@ -213,6 +213,8 @@ static void on_urc_npsmr(struct modem_chat *chat, char **argv, uint16_t argc, vo
 	if (mode == 1) {
 		y7080e_flag_set(Y7080E_FLAG_PSM_SLEEP);
 		LOG_INF("+NPSMR: entering PSM");
+		/* A PSM entry indication in its own right (AT manual 3.2.7). */
+		k_sem_give(&mdata.sem_powerdown);
 	} else {
 		y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
 	}
@@ -226,6 +228,11 @@ static void on_urc_mnbiotevent(struct modem_chat *chat, char **argv, uint16_t ar
 	if (strstr(argv[1], "ENTER") != NULL) {
 		y7080e_flag_set(Y7080E_FLAG_PSM_SLEEP);
 		LOG_INF("PSM entered");
+		/*
+		 * This is how this module reports PSM entry. +POWERDOWN is
+		 * reserved for the power-off NV mode (AT manual 3.2.5, 10.2.9).
+		 */
+		k_sem_give(&mdata.sem_powerdown);
 	} else if (strstr(argv[1], "EXIT") != NULL) {
 		y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
 		LOG_INF("PSM exited");
@@ -1336,25 +1343,23 @@ int mdm_y7080e_power_off(void)
 	}
 
 	if (mdata.state == Y7080E_STATE_SLEEPING && y7080e_flag(Y7080E_FLAG_PSM_SLEEP)) {
-		/* It reported +POWERDOWN: its NV is saved, cut the supply. */
+		/* In PSM it writes nothing: cut the supply. */
 		goto cut;
 	}
 
 	/*
 	 * Anything else is still running, so it gets the documented software
-	 * power-down first. The pipe is closed while sleeping; reopening it
-	 * is a no-op when it is already open.
+	 * power-down first: AT+FASTOFF=1 saves the NV and then waits for the
+	 * supply cut (AT manual 3.2.1). Firmware 2212B07Y7080E answers OK and
+	 * nothing else, so STATUS dropping, or two seconds, ends the wait.
+	 * The pipe is closed while sleeping; reopening it is a no-op when it
+	 * is already open.
 	 */
 	if (pipe_open() < 0) {
 		goto cut;
 	}
 
-	y7080e_flag_clear(Y7080E_FLAG_POWERDOWN);
-	k_sem_reset(&mdata.sem_powerdown);
 	ret = y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+FASTOFF=1");
-	if (ret == 0) {
-		(void)k_sem_take(&mdata.sem_powerdown, K_SECONDS(5));
-	}
 	(void)wait_status(false, 2000);
 
 cut:
@@ -1523,6 +1528,7 @@ int mdm_y7080e_sleep(void)
 	y7080e_pm_lock();
 
 	y7080e_flag_clear(Y7080E_FLAG_POWERDOWN);
+	y7080e_flag_clear(Y7080E_FLAG_PSM_SLEEP);
 	k_sem_reset(&mdata.sem_powerdown);
 
 	ret = y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+WORKLOCK=0");
@@ -1531,19 +1537,22 @@ int mdm_y7080e_sleep(void)
 	}
 
 	/*
-	 * The module needs the RRC connection released and T3324 expired
-	 * before it powers down. With a PSM grant this takes a few seconds;
-	 * without one +POWERDOWN never comes.
+	 * PSM needs the RRC connection released and T3324 run out: a few
+	 * seconds with a grant. The module then reports +MNBIOTEVENT
+	 * "ENTER PSM" (+NPSMR: 1, or +POWERDOWN in the power-off NV mode);
+	 * without a grant nothing comes.
 	 */
 	if (k_sem_take(&mdata.sem_powerdown, K_MSEC(CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS)) !=
 	    0) {
 		/*
-		 * The module is demonstrably still awake. Keep the link and
-		 * the state as they are, so the caller can still talk to it
-		 * and power it down cleanly instead of cutting its supply.
+		 * The module is demonstrably still awake. Take the lock back
+		 * and keep the link and the state as they are, so the caller
+		 * can still talk to it and power it down cleanly instead of
+		 * cutting its supply.
 		 */
-		LOG_WRN("no +POWERDOWN within %d ms (PSM not granted?)",
+		LOG_WRN("no PSM entry within %d ms (PSM not granted?)",
 			CONFIG_MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS);
+		(void)y7080e_cmd_tolerant(MDM_PROBE_TIMEOUT_S, "AT+WORKLOCK=1");
 		ret = -ETIMEDOUT;
 		goto out;
 	}

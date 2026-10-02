@@ -122,7 +122,7 @@ config MODEM_SIMCOM_Y7080E_ATTACH_TIMEOUT_S
 	default 180
 
 config MODEM_SIMCOM_Y7080E_SLEEP_WAIT_MS
-	int "Milliseconds to wait for +POWERDOWN after releasing the work lock"
+	int "Milliseconds to wait for PSM entry after releasing the work lock"
 	default 15000
 
 config MODEM_SIMCOM_Y7080E_DNS_TIMEOUT_MS
