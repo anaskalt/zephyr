@@ -171,6 +171,14 @@ struct y7080e_data {
 	char apn[MDM_APN_LENGTH];
 	/* Runtime override of CONFIG_MODEM_SIMCOM_Y7080E_APN, if any. */
 	char apn_want[MDM_APN_LENGTH];
+	/* PDP type of context 0 from AT+CGDCONT?; empty when no line was parsed. */
+	char pdp_type[12];
+	/*
+	 * APN the module refused for context 0. Not retried until the wish
+	 * changes, the MCU restarts or an attach fails. A field, not a flag:
+	 * power_off() clears every flag.
+	 */
+	char apn_refused[MDM_APN_LENGTH];
 	uint8_t cpsms_mode;
 	char cpsms_tau[12];
 	char cpsms_active[12];

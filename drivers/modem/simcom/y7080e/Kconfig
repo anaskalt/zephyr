@@ -43,7 +43,8 @@ config MODEM_SIMCOM_Y7080E_APN
 	help
 	  When set, the driver compares it with the APN of context 0 on every
 	  boot and rewrites it (AT+CFUN=0, AT+CGDCONT=0, AT+NV=SAVE) only when
-	  it differs.
+	  it differs. A value the module refuses is not tried again until it
+	  changes, the MCU restarts or an attach fails.
 
 config MODEM_SIMCOM_Y7080E_BAND_LIST
 	string "NB-IoT band list for AT+NBAND (empty = leave the module setting)"

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <zephyr/drivers/uart.h>
 #include <zephyr/logging/log.h>
@@ -392,6 +393,7 @@ static void on_urc_cgdcont(struct modem_chat *chat, char **argv, uint16_t argc, 
 {
 	/* +CGDCONT:<cid>,<type>,<apn>,... keep the default context only. */
 	if (argc >= 4 && field_int(argv[1]) == 0) {
+		copy_field(mdata.pdp_type, sizeof(mdata.pdp_type), argv[2]);
 		copy_field(mdata.apn, sizeof(mdata.apn), argv[3]);
 	}
 }
@@ -1237,21 +1239,30 @@ static int modem_configure_persistent(void)
 	/*
 	 * APN of the default context. mdm_y7080e_set_apn() overrides the
 	 * Kconfig default; an empty string on both means the SIM's own
-	 * provisioning is left alone.
+	 * provisioning is left alone. The PDP type stays what the module
+	 * has, and a value the module refused is not tried on every boot:
+	 * each try costs a detach, and the network default APN may well
+	 * work (it does on 1NCE).
 	 */
 	want_apn = (mdata.apn_want[0] != '\0') ? mdata.apn_want
 						: CONFIG_MODEM_SIMCOM_Y7080E_APN;
-	if (want_apn[0] != '\0') {
+	if (want_apn[0] != '\0' && strcmp(want_apn, mdata.apn_refused) != 0) {
 		mdata.apn[0] = '\0';
-		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CGDCONT?") == 0 &&
-		    strcmp(mdata.apn, want_apn) != 0 && radio_down(&down)) {
+		mdata.pdp_type[0] = '\0';
+		ret = y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+CGDCONT?");
+		if (ret != 0 || mdata.pdp_type[0] == '\0') {
+			LOG_WRN("context 0 not readable (%d), APN left alone", ret);
+		} else if (strncasecmp(mdata.apn, want_apn, sizeof(mdata.apn)) != 0 &&
+			   radio_down(&down)) {
 			LOG_INF("APN '%s' -> '%s'", mdata.apn, want_apn);
-			ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S,
-					 "AT+CGDCONT=0,\"IP\",\"%s\"", want_apn);
+			ret = y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CGDCONT=0,\"%s\",\"%s\"",
+					 mdata.pdp_type, want_apn);
 			if (ret == 0) {
 				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
 			} else {
-				LOG_WRN("AT+CGDCONT rejected (%d)", ret);
+				LOG_WRN("APN '%s' refused (%d), staying on '%s'", want_apn, ret,
+					mdata.apn);
+				strncpy(mdata.apn_refused, want_apn, sizeof(mdata.apn_refused) - 1);
 			}
 		}
 	}
@@ -1533,6 +1544,10 @@ int mdm_y7080e_start_network(void)
 	ret = 0;
 
 out:
+	if (ret < 0) {
+		/* The network default APN may be what failed: try ours again. */
+		mdata.apn_refused[0] = '\0';
+	}
 	y7080e_pm_unlock();
 	k_mutex_unlock(&mdata.at_lock);
 
