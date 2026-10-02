@@ -146,6 +146,8 @@ struct y7080e_data {
 	struct k_sem sem_powerdown;
 	struct k_sem sem_dns;
 	int poweron_cause;
+	/* Last ^SIMST <n>; -1 = none since the boot or the wake pulse. */
+	int simst;
 	uint8_t registration;
 	uint8_t cfun;
 	uint8_t resetctl_mode;

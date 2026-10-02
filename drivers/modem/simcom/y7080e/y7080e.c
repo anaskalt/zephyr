@@ -172,7 +172,18 @@ static void on_urc_simst(struct modem_chat *chat, char **argv, uint16_t argc, vo
 	} else {
 		y7080e_flag_clear(Y7080E_FLAG_SIM_READY);
 	}
+	mdata.simst = st;
 	LOG_INF("^SIMST: %d", st);
+
+	/*
+	 * ^SIMST closes every start-up and deep-sleep wake (AT manual 2.2.6):
+	 * 1 when the SIM was initialised, 2 after a wake that kept its state.
+	 * AT+CFUN=1 brings a 1 too. +POWERON is only sent in the external
+	 * baseboard NV configuration (3.2.4) and firmware 2212B07Y7080E never
+	 * prints it, so this is what ends the boot, NV-save and wake waits;
+	 * each of them resets the semaphore first.
+	 */
+	k_sem_give(&mdata.sem_poweron);
 }
 
 static void on_urc_rebooting(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
@@ -988,6 +999,7 @@ static int modem_boot(void)
 	mdata.granted_active_sec = Y7080E_TIMER_ABSENT;
 	mdata.granted_tau_sec = Y7080E_TIMER_ABSENT;
 	mdata.ip_addr[0] = '\0';
+	mdata.simst = -1;
 	k_sem_reset(&mdata.sem_poweron);
 
 	/* RESET must be low before the supply arrives. */
@@ -1005,7 +1017,11 @@ static int modem_boot(void)
 		return ret;
 	}
 
-	/* +POWERON and ^SIMST arrive at the module's NV baud rate. */
+	/*
+	 * ^SIMST ends the start-up, about a second after the supply. It
+	 * arrives at the module's NV baud rate: on a mismatch (factory 9600)
+	 * it is garbage and the wait simply runs out.
+	 */
 	(void)k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_POWERON_TIMEOUT_MS));
 
 	ret = establish_at_link();
@@ -1548,6 +1564,7 @@ out:
 
 int mdm_y7080e_wake(void)
 {
+	bool restarted;
 	int ret;
 
 	if (mdata.state == Y7080E_STATE_OFF) {
@@ -1566,14 +1583,18 @@ int mdm_y7080e_wake(void)
 	}
 
 	y7080e_flag_clear(Y7080E_FLAG_POWERON);
+	y7080e_flag_clear(Y7080E_FLAG_REBOOTING);
 	k_sem_reset(&mdata.sem_poweron);
-	/* Only a +POWERON from this pulse may decide "it restarted". */
+	/* Only what follows this pulse may tell how the module came back. */
 	mdata.poweron_cause = -1;
+	mdata.simst = -1;
 
 	reset_pulse_wake();
 
-	/* A module that really slept announces itself; one that did not
-	 * ignores the pulse and simply answers the probe.
+	/*
+	 * A module in PSM announces the wake with ^SIMST (AT manual 2.2.6).
+	 * One that was awake, say for a periodic TAU, ignores the pulse and
+	 * simply answers the probe.
 	 */
 	(void)k_sem_take(&mdata.sem_poweron, K_MSEC(MDM_POWERON_TIMEOUT_MS));
 
@@ -1583,11 +1604,18 @@ int mdm_y7080e_wake(void)
 		goto out;
 	}
 
-	if (y7080e_flag(Y7080E_FLAG_REBOOTING) ||
-	    (mdata.poweron_cause >= 0 && mdata.poweron_cause != 3 && mdata.poweron_cause != 4 &&
-	     mdata.poweron_cause != 10)) {
-		/* A reset rather than a wake: volatile settings are gone. */
-		LOG_WRN("module restarted (cause %d), reconfiguring", mdata.poweron_cause);
+	/*
+	 * ^SIMST: 2 is a wake that kept the SIM state. ^SIMST: 1 means the
+	 * SIM was initialised again, after a restart or a wake that chose
+	 * to; the volatile settings may be gone either way, and they are
+	 * cheap to send again.
+	 */
+	restarted = y7080e_flag(Y7080E_FLAG_REBOOTING) || mdata.simst == 1 ||
+		    (mdata.poweron_cause >= 0 && mdata.poweron_cause != 3 &&
+		     mdata.poweron_cause != 4 && mdata.poweron_cause != 10);
+	if (restarted) {
+		LOG_INF("woke with ^SIMST %d, cause %d: reapplying settings", mdata.simst,
+			mdata.poweron_cause);
 		(void)y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "ATE0");
 		(void)y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+CMEE=1");
 		modem_configure_urc();
