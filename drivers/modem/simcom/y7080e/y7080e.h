@@ -47,8 +47,8 @@
 
 /* The module's command line buffer is 559 characters (AT manual 1.4.4). */
 #define MDM_CMD_LINE_MAX    559
-BUILD_ASSERT(2 * MDM_MAX_DATA_LENGTH + 45 <= MDM_CMD_LINE_MAX,
-	     "hex payload plus the AT+NSOSTF header must fit the module command line");
+BUILD_ASSERT(2 * MDM_MAX_DATA_LENGTH + 49 <= MDM_CMD_LINE_MAX,
+	     "hex payload plus the AT+NSOSTF header and sequence must fit the module command line");
 BUILD_ASSERT(CONFIG_MODEM_SIMCOM_Y7080E_CHAT_BUF_SIZE >= 2 * MDM_MAX_DATA_LENGTH + 64,
 	     "chat buffer must hold the longest AT+NSORF reply");
 #define MDM_UART_BUF_SIZE   CONFIG_MODEM_SIMCOM_Y7080E_UART_BUF_SIZE
@@ -153,6 +153,7 @@ struct y7080e_data {
 	struct k_sem sem_poweron;
 	struct k_sem sem_powerdown;
 	struct k_sem sem_dns;
+	struct k_sem sem_nsostr;
 	int poweron_cause;
 	/* Last ^SIMST <n>; -1 = none since the boot or the wake pulse. */
 	int simst;
@@ -198,6 +199,11 @@ struct y7080e_data {
 	int nsocr_id;
 	int nsost_id;
 	int nsost_len;
+	/* AT+NSOSTF <sequence> awaiting its +NSOSTR, 0 = none. */
+	uint8_t nsostr_seq;
+	uint8_t send_seq;
+	/* +NSOSTR <status> for nsostr_seq: 1 sent, 0 failed. */
+	int nsostr_status;
 	int nsosd_id;
 	int nsosd_len;
 	uint8_t *nsorf_dst;

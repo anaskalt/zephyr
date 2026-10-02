@@ -503,10 +503,20 @@ static void on_urc_nsost(struct modem_chat *chat, char **argv, uint16_t argc, vo
 
 static void on_urc_nsostr(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
 {
-	if (argc >= 4) {
-		LOG_INF("+NSOSTR: socket %s seq %s %s", argv[1], argv[2],
-			field_int(argv[3]) == 1 ? "sent" : "FAILED");
+	/* +NSOSTR:<socket>,<sequence>,<status>: the datagram left the air port (1) or not. */
+	int seq;
+
+	if (argc < 4) {
+		return;
 	}
+	seq = field_int(argv[2]);
+	if (seq != 0 && seq == mdata.nsostr_seq) {
+		mdata.nsostr_status = field_int(argv[3]);
+		k_sem_give(&mdata.sem_nsostr);
+		return;
+	}
+	LOG_INF("+NSOSTR: socket %s seq %d %s", argv[1], seq,
+		field_int(argv[3]) == 1 ? "sent" : "FAILED");
 }
 
 static void on_urc_nsonmi(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
@@ -2014,6 +2024,7 @@ static int modem_init(const struct device *dev)
 	k_sem_init(&mdata.sem_poweron, 0, 1);
 	k_sem_init(&mdata.sem_powerdown, 0, 1);
 	k_sem_init(&mdata.sem_dns, 0, 1);
+	k_sem_init(&mdata.sem_nsostr, 0, 1);
 	mdata.state = Y7080E_STATE_OFF;
 	mdata.granted_active_sec = -1;
 	mdata.granted_tau_sec = -1;

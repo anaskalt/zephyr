@@ -7,7 +7,8 @@
  *
  *   AT+NSOCR=<type>,<proto>,<lport>,1     -> +NSOCR:<id>
  *   AT+NSOCO=<id>,<ip>,<port>             (TCP connect)
- *   AT+NSOSTF=<id>,<ip>,<port>,<flag>,<len>,<hex>  -> +NSOSTF:<id>,<len>
+ *   AT+NSOSTF=<id>,<ip>,<port>,<flag>,<len>,<hex>[,<seq>]  -> +NSOSTF:<id>,<len>
+ *   +NSOSTR:<id>,<seq>,<status>           (datagram on the air, or not)
  *   AT+NSOSD=<id>,<len>,<hex>[,<flag>]    -> <id>,<len>
  *   +NSONMI:<id>,<len>                    (data pending)
  *   AT+NSORF=<id>,<len>                   -> +NSORF:<id>,<ip>,<port>,<len>,<hex>,<rem>
@@ -36,6 +37,8 @@ LOG_MODULE_REGISTER(modem_simcom_y7080e_sock, CONFIG_MODEM_LOG_LEVEL);
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
 /* ------------------------------------------------------------------ */
+
+static bool y7080e_sock_nonblock(const struct modem_socket *sock);
 
 static const char *skip_spaces(const char *s)
 {
@@ -294,6 +297,37 @@ out:
 	return 0;
 }
 
+/*
+ * Wait for the +NSOSTR of a datagram sent with a sequence number. The
+ * report only arrives over the UART, so the SoC must not suspend it.
+ */
+static int wait_sent(uint8_t seq)
+{
+	int64_t start = k_uptime_get();
+	int ret;
+
+	y7080e_pm_lock();
+	ret = k_sem_take(&mdata.sem_nsostr,
+			 K_MSEC(CONFIG_MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS));
+	y7080e_pm_unlock();
+	mdata.nsostr_seq = 0;
+
+	if (ret != 0) {
+		LOG_WRN("datagram %u not on the air after %d ms", seq,
+			CONFIG_MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS);
+		return -ETIMEDOUT;
+	}
+	if (mdata.nsostr_status != 1) {
+		LOG_WRN("datagram %u failed (+NSOSTR status %d)", seq, mdata.nsostr_status);
+		return -EIO;
+	}
+
+	LOG_INF("datagram %u on the air after %u ms", seq,
+		(unsigned int)(k_uptime_get() - start));
+
+	return 0;
+}
+
 static ssize_t offload_sendto(void *obj, const void *buf, size_t len, int flags,
 			      const struct net_sockaddr *dest_addr, net_socklen_t addrlen)
 {
@@ -301,10 +335,10 @@ static ssize_t offload_sendto(void *obj, const void *buf, size_t len, int flags,
 	const struct net_sockaddr *dst;
 	char ip[NET_IPV4_ADDR_LEN];
 	uint16_t port = 0;
+	uint8_t seq = 0;
 	int n;
 	int ret;
 
-	ARG_UNUSED(flags);
 	ARG_UNUSED(addrlen);
 
 	if (buf == NULL || len == 0) {
@@ -368,6 +402,22 @@ static ssize_t offload_sendto(void *obj, const void *buf, size_t len, int flags,
 		}
 	}
 
+	/*
+	 * A blocking send asks for the on-air report, so it returns once the
+	 * datagram has really gone, not when the module has merely queued it.
+	 */
+	if (sock->type == NET_SOCK_DGRAM && CONFIG_MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS > 0 &&
+	    !(flags & ZSOCK_MSG_DONTWAIT) && !y7080e_sock_nonblock(sock)) {
+		size_t used = strlen(mdata.cmd_buf);
+
+		mdata.send_seq = (uint8_t)((mdata.send_seq % 255U) + 1U);
+		seq = mdata.send_seq;
+		snprintk(&mdata.cmd_buf[used], sizeof(mdata.cmd_buf) - used, ",%u", seq);
+		k_sem_reset(&mdata.sem_nsostr);
+		mdata.nsostr_status = -1;
+		mdata.nsostr_seq = seq;
+	}
+
 	if (sock->type == NET_SOCK_DGRAM) {
 		mdata.nsost_id = -1;
 		mdata.nsost_len = -1;
@@ -403,6 +453,11 @@ static ssize_t offload_sendto(void *obj, const void *buf, size_t len, int flags,
 
 out:
 	k_mutex_unlock(&mdata.at_lock);
+
+	if (seq != 0) {
+		ret = (ret == 0) ? wait_sent(seq) : ret;
+		mdata.nsostr_seq = 0;
+	}
 
 	if (ret < 0) {
 		errno = -ret;

@@ -94,6 +94,17 @@ config MODEM_SIMCOM_Y7080E_UDP_SEND_FLAG
 	  reply to this datagram. 0x200 is the right value for fire-and-forget
 	  telemetry: it saves the 20 s inactivity tail per uplink.
 
+config MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS
+	int "Milliseconds a blocking UDP send waits for the datagram to go out"
+	default 30000
+	help
+	  AT+NSOSTF only queues a datagram. Sent with a sequence number, the
+	  module reports +NSOSTR once it has left the air port (AT manual
+	  12.2.7), and a blocking sendto() returns only then: with an error if
+	  the module reports a failure or the time runs out. The work lock is
+	  therefore never released while a datagram is still queued. 0 sends
+	  without a sequence and returns as soon as the datagram is queued.
+
 config MODEM_SIMCOM_Y7080E_MAX_DATA_LENGTH
 	int "Largest payload of one send or receive, in bytes"
 	default 255
