@@ -1245,6 +1245,34 @@ static int modem_configure_persistent(void)
 	}
 	mdata.resetctl_mode = CONFIG_MODEM_SIMCOM_Y7080E_RESETCTL_MODE;
 
+	/*
+	 * Factory NV, written once. Firmware 2212B07Y7080E ships with the
+	 * chip's deep sleep OFF: the PSM procedure completes ("ENTER PSM")
+	 * but the chip stays awake at 6.6 mA instead of 1.7 uA. The log
+	 * output is what SIMCom switch off for their own power tests (AT
+	 * manual 17.2.1).
+	 */
+	{
+		char factory[96];
+
+		if (cmd_capture(factory, sizeof(factory), MDM_CMD_TIMEOUT_S,
+				"AT+NV=GET,FACTORY") == 0 &&
+		    strstr(factory, "LOG:1") != NULL) {
+			LOG_INF("chip log on, switching it off");
+			if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NV=SET,LOG,0") == 0) {
+				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+			}
+		}
+		if (cmd_capture(factory, sizeof(factory), MDM_CMD_TIMEOUT_S,
+				"AT+NV=GET,DEEPSLEEP") == 0 &&
+		    (strstr(factory, ":0") != NULL || strcmp(factory, "0") == 0)) {
+			LOG_INF("chip deep sleep off (%s), switching it on", factory);
+			if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NV=SET,DEEPSLEEP,1") == 0) {
+				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+			}
+		}
+	}
+
 	if (CONFIG_MODEM_SIMCOM_Y7080E_BAND_LIST[0] != '\0') {
 		mdata.nband[0] = '\0';
 		if (y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+NBAND?") == 0 &&
