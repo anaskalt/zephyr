@@ -96,7 +96,7 @@ config MODEM_SIMCOM_Y7080E_UDP_SEND_FLAG
 
 config MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS
 	int "Milliseconds a blocking UDP send waits for the datagram to go out"
-	default 60000
+	default 90000
 	help
 	  AT+NSOSTF only queues a datagram. Sent with a sequence number, the
 	  module reports +NSOSTR once it has left the air port (AT manual
@@ -104,6 +104,10 @@ config MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS
 	  the module reports a failure or the time runs out. The work lock is
 	  therefore never released while a datagram is still queued. 0 sends
 	  without a sequence and returns as soon as the datagram is queued.
+
+	  On a cell at coverage class 1 the RRC connection alone took up to
+	  60 s on the first boards and the datagram still went out; giving up
+	  earlier loses both the datagram and the energy already spent.
 
 	  Out of PSM the datagram normally leaves within two seconds, but a
 	  module that has to find its cell again took up to 37 s on the first
