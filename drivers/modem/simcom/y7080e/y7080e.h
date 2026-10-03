@@ -162,6 +162,8 @@ struct y7080e_data {
 	uint8_t registration;
 	uint8_t cfun;
 	uint8_t resetctl_mode;
+	/* +NCONFIG:AUTOCONNECT value, 0xFF while unknown. */
+	uint8_t autoconnect;
 	long granted_active_sec;
 	long granted_tau_sec;
 	char ip_addr[NET_IPV4_ADDR_LEN];

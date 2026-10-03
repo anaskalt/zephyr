@@ -430,6 +430,14 @@ static void on_urc_resetctl(struct modem_chat *chat, char **argv, uint16_t argc,
 	}
 }
 
+/* +NCONFIG:<function>,<value>, one line per function (AT manual 16.2.4). */
+static void on_urc_nconfig(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
+{
+	if (argc >= 3 && strcmp(argv[1], "AUTOCONNECT") == 0) {
+		mdata.autoconnect = (uint8_t)field_int(argv[2]);
+	}
+}
+
 static void on_urc_csq(struct modem_chat *chat, char **argv, uint16_t argc, void *user_data)
 {
 	mdata.csq_rssi = (argc >= 2) ? field_int(argv[1]) : 99;
@@ -671,6 +679,7 @@ static const struct modem_chat_match unsol_matches[] = {
 	MODEM_CHAT_MATCH("+CGDCONT:", ",", on_urc_cgdcont),
 	MODEM_CHAT_MATCH("+CPSMS:", ",", on_urc_cpsms),
 	MODEM_CHAT_MATCH("+RESETCTL:", ",", on_urc_resetctl),
+	MODEM_CHAT_MATCH("+NCONFIG:", ",", on_urc_nconfig),
 	MODEM_CHAT_MATCH("+WORKLOCK:", ",", on_urc_worklock),
 	MODEM_CHAT_MATCH("+CSQ:", ",", on_urc_csq),
 	MODEM_CHAT_MATCH("+CGSN:", ",", on_urc_cgsn),
@@ -1321,9 +1330,21 @@ static int modem_configure_persistent(void)
 	 * has, and a value the module refused is not tried on every boot:
 	 * each try costs a detach, and the network default APN may well
 	 * work (it does on 1NCE).
+	 *
+	 * With AUTOCONNECT on (the factory setting) the module attaches on
+	 * its own with the APN the network provides and refuses a context
+	 * 0 of ours with CME ERROR 100 (16.2.4), so a configured APN is
+	 * only noted; applying one needs AUTOCONNECT off and a manual
+	 * attach, which this driver does not do.
 	 */
 	want_apn = (mdata.apn_want[0] != '\0') ? mdata.apn_want
 						: CONFIG_MODEM_SIMCOM_Y7080E_APN;
+	mdata.autoconnect = 0xFF;
+	if (want_apn[0] != '\0' && strcmp(want_apn, mdata.apn_refused) != 0 &&
+	    y7080e_cmd_tolerant(MDM_CMD_TIMEOUT_S, "AT+NCONFIG?") == 0 && mdata.autoconnect == 1U) {
+		LOG_INF("APN '%s' not applied: the module attaches with the network APN", want_apn);
+		strncpy(mdata.apn_refused, want_apn, sizeof(mdata.apn_refused) - 1);
+	}
 	if (want_apn[0] != '\0' && strcmp(want_apn, mdata.apn_refused) != 0) {
 		mdata.apn[0] = '\0';
 		mdata.pdp_type[0] = '\0';
