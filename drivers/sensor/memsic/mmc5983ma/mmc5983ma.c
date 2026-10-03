@@ -23,8 +23,8 @@
 
 LOG_MODULE_REGISTER(MMC5983MA, CONFIG_SENSOR_LOG_LEVEL);
 
-/* Measurement time per bandwidth setting, rounded up to whole ms. */
-static const uint8_t mmc5983ma_meas_ms[4] = {8, 4, 2, 1};
+/* Measurement time per bandwidth setting (datasheet 8/4/2/0.5 ms) plus a margin. */
+static const uint16_t mmc5983ma_meas_us[4] = {8200, 4100, 2050, 550};
 
 /* Continuous mode rates indexed by the CM_Freq code. */
 static const uint16_t mmc5983ma_cm_freq_hz[8] = {0, 1, 10, 20, 50, 100, 200, 1000};
@@ -50,20 +50,23 @@ int mmc5983ma_write_ctrl0(const struct device *dev, uint8_t extra_bits)
 	return mmc5983ma_reg_write(dev, MMC5983MA_REG_CTRL0, data->ctrl0 | extra_bits);
 }
 
-static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t first_wait_ms,
+static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t first_wait_us,
 				 uint32_t timeout_ms)
 {
 	int64_t deadline = k_uptime_get() + timeout_ms;
+	uint32_t spun_us = 0;
 	uint8_t status;
 	int ret;
 
-	if (first_wait_ms > 0U) {
-		/* Shorter than a STOP2 round trip: spin instead of sleeping. */
-		if (first_wait_ms <= 2U) {
-			k_busy_wait(first_wait_ms * 1000U);
-		} else {
-			k_sleep(K_MSEC(first_wait_ms));
-		}
+	/*
+	 * A short measurement is waited out spinning: a sleep would cost a
+	 * low-power round trip that takes longer than the measurement.
+	 */
+	if (first_wait_us > 2000U) {
+		k_sleep(K_USEC(first_wait_us));
+	} else if (first_wait_us > 0U) {
+		k_busy_wait(first_wait_us);
+		spun_us = first_wait_us;
 	}
 
 	for (;;) {
@@ -77,7 +80,12 @@ static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t
 		if (k_uptime_get() >= deadline) {
 			return -ETIMEDOUT;
 		}
-		k_sleep(K_MSEC(1));
+		if (spun_us < 2000U) {
+			k_busy_wait(100);
+			spun_us += 100U;
+		} else {
+			k_sleep(K_MSEC(1));
+		}
 	}
 }
 
@@ -136,10 +144,10 @@ retry:
 		if (ret < 0) {
 			return ret;
 		}
-		first_wait = mmc5983ma_meas_ms[data->ctrl1 & MMC5983MA_CTRL1_BW_MASK];
+		first_wait = mmc5983ma_meas_us[data->ctrl1 & MMC5983MA_CTRL1_BW_MASK];
 		if (data->ctrl0 & MMC5983MA_CTRL0_AUTO_SR_EN) {
 			/* SET and RESET pulses precede the measurement. */
-			first_wait += 1U;
+			first_wait += 1000U;
 		}
 	} else {
 		/* Continuous mode: the next sample is at most one period away. */
@@ -185,7 +193,7 @@ static int mmc5983ma_fetch_temp(const struct device *dev)
 		return ret;
 	}
 
-	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_T_DONE, 1, MMC5983MA_MEAS_TIMEOUT_MS);
+	ret = mmc5983ma_wait_status(dev, MMC5983MA_STATUS_MEAS_T_DONE, 1000, MMC5983MA_MEAS_TIMEOUT_MS);
 	if (ret < 0) {
 		return ret;
 	}
