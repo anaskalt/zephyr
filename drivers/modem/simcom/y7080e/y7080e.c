@@ -1043,6 +1043,15 @@ static int modem_boot(void)
 
 	ret = wait_status(true, MDM_STATUS_TIMEOUT_MS);
 	if (ret < 0) {
+		/*
+		 * A module an MCU reset left in deep sleep keeps its supply
+		 * and holds STATUS low until it is woken: pulse and look again.
+		 */
+		LOG_INF("STATUS low, waking the module");
+		reset_pulse_wake();
+		ret = wait_status(true, MDM_STATUS_TIMEOUT_MS);
+	}
+	if (ret < 0) {
 		LOG_ERR("STATUS never went high");
 		return ret;
 	}
