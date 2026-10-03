@@ -58,7 +58,12 @@ static int mmc5983ma_wait_status(const struct device *dev, uint8_t bit, uint32_t
 	int ret;
 
 	if (first_wait_ms > 0U) {
-		k_sleep(K_MSEC(first_wait_ms));
+		/* Shorter than a STOP2 round trip: spin instead of sleeping. */
+		if (first_wait_ms <= 2U) {
+			k_busy_wait(first_wait_ms * 1000U);
+		} else {
+			k_sleep(K_MSEC(first_wait_ms));
+		}
 	}
 
 	for (;;) {
