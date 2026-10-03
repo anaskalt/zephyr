@@ -970,11 +970,13 @@ static int at_probe(int tries)
 
 /*
  * Establish the AT link. The module remembers its baud rate in NV (factory
- * 9600); the board expects MDM_UART_BAUD. Try the expected rate first, fall
- * back to 9600 and move the module to the expected rate for good.
+ * 9600); the board expects MDM_UART_BAUD. Try the expected rate first, then
+ * the rates a module may have been left at, and move it to the expected
+ * rate for good.
  */
 static int establish_at_link(void)
 {
+	static const uint32_t others[] = {MDM_FACTORY_BAUD, 115200U};
 	int ret;
 
 	ret = at_probe(MDM_PROBE_TRIES);
@@ -982,19 +984,18 @@ static int establish_at_link(void)
 		return 0;
 	}
 
-	if (MDM_UART_BAUD == MDM_FACTORY_BAUD) {
-		return ret;
+	for (size_t i = 0; i < ARRAY_SIZE(others) && ret != 0; i++) {
+		if (others[i] == MDM_UART_BAUD) {
+			continue;
+		}
+		LOG_WRN("no answer at %u baud, trying %u", (unsigned int)MDM_UART_BAUD,
+			(unsigned int)others[i]);
+		ret = uart_set_baud(others[i]);
+		if (ret < 0) {
+			return ret;
+		}
+		ret = at_probe(MDM_PROBE_TRIES);
 	}
-
-	LOG_WRN("no answer at %u baud, trying %u", (unsigned int)MDM_UART_BAUD,
-		(unsigned int)MDM_FACTORY_BAUD);
-
-	ret = uart_set_baud(MDM_FACTORY_BAUD);
-	if (ret < 0) {
-		return ret;
-	}
-
-	ret = at_probe(MDM_PROBE_TRIES);
 	if (ret != 0) {
 		(void)uart_set_baud(MDM_UART_BAUD);
 		return ret;
@@ -1268,6 +1269,21 @@ static int modem_configure_persistent(void)
 		    (strstr(factory, ":0") != NULL || strcmp(factory, "0") == 0)) {
 			LOG_INF("chip deep sleep off (%s), switching it on", factory);
 			if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NV=SET,DEEPSLEEP,1") == 0) {
+				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+			}
+		}
+		/*
+		 * STANDBY is the chip's light sleep between commands, 0.75 mA
+		 * instead of 6.6 mA awake, and what carries it through the half
+		 * minute it stays up after the last command before deep sleep.
+		 * AT+IPR above 9600 baud switches it off (5.2.2); an earlier
+		 * firmware did that, and the module keeps it.
+		 */
+		if (cmd_capture(factory, sizeof(factory), MDM_CMD_TIMEOUT_S,
+				"AT+NV=GET,STANDBY") == 0 &&
+		    (strstr(factory, ":0") != NULL || strcmp(factory, "0") == 0)) {
+			LOG_INF("chip standby off (%s), switching it on", factory);
+			if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S, "AT+NV=SET,STANDBY,1") == 0) {
 				y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
 			}
 		}
