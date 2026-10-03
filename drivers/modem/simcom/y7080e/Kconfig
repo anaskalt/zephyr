@@ -94,6 +94,19 @@ config MODEM_SIMCOM_Y7080E_UDP_SEND_FLAG
 	  reply to this datagram. 0x200 is the right value for fire-and-forget
 	  telemetry: it saves the 20 s inactivity tail per uplink.
 
+config MODEM_SIMCOM_Y7080E_SIM_INIT_ON_WAKE
+	bool "Initialise the SIM again on every deep-sleep wake"
+	default n
+	help
+	  AT+NSET="INITUSIM". Off, the factory value, keeps the card state
+	  through deep sleep and a wake answers AT at once (^SIMST: 2). On,
+	  the card is initialised on every wake (^SIMST: 1), about a second
+	  of module time per report. It buys nothing on the sleep floor:
+	  measured 2026-10-03, the floor is the same with the card pulled
+	  out, so the card draws nothing in deep sleep either way. The
+	  driver writes whichever value is configured to the module's NV
+	  once, so a module that was switched on can be switched back.
+
 config MODEM_SIMCOM_Y7080E_SEND_CONFIRM_TIMEOUT_MS
 	int "Milliseconds a blocking UDP send waits for the datagram to go out"
 	default 90000

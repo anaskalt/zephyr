@@ -1291,6 +1291,26 @@ static int modem_configure_persistent(void)
 			}
 		}
 		/*
+		 * Whether a deep-sleep wake initialises the SIM again (NSET
+		 * INITUSIM, 16.2.7). The reply is +NSET:"INITUSIM",<0|1>; the
+		 * configured value is written when the module holds the other.
+		 */
+		{
+			const char want =
+				IS_ENABLED(CONFIG_MODEM_SIMCOM_Y7080E_SIM_INIT_ON_WAKE) ? '1' : '0';
+			const char *comma;
+
+			if (cmd_capture(factory, sizeof(factory), MDM_CMD_TIMEOUT_S,
+					"AT+NSET=\"INITUSIM\"") == 0 &&
+			    (comma = strrchr(factory, ',')) != NULL && comma[1] != want) {
+				LOG_INF("SIM init on wake %c -> %c", comma[1], want);
+				if (y7080e_cmd(NULL, 0, MDM_CMD_TIMEOUT_S,
+					       "AT+NSET=\"INITUSIM\",%c", want) == 0) {
+					y7080e_flag_set(Y7080E_FLAG_NV_DIRTY);
+				}
+			}
+		}
+		/*
 		 * STANDBY is the chip's light sleep between commands, 0.75 mA
 		 * instead of 6.6 mA awake, and what carries it through the half
 		 * minute it stays up after the last command before deep sleep.
