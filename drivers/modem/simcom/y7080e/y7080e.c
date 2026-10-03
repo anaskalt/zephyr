@@ -1525,7 +1525,8 @@ cut:
 	y7080e_sock_invalidate_all();
 	atomic_clear(&mdata.flags);
 	y7080e_change_state(Y7080E_STATE_OFF);
-	/* Let the load switch decay (R37 x C50 = 350 ms) before a re-power. */
+	/* Let the module's rail drain before a re-power (the gate falls through
+	 * R38 in ~50 ms; the bulk capacitance takes longer). */
 	k_sleep(K_MSEC(500));
 
 out:
